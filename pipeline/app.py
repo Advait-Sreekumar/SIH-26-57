@@ -89,6 +89,36 @@ else:
     st.sidebar.caption("Navigation & geometry auto-loaded from the XTF ping headers.")
     slant_fix = st.sidebar.checkbox("Apply slant-range correction", value=True)
 
+with st.expander("About this model — scope, limitations & performance", expanded=False):
+    st.markdown("""
+**Detection scope:** Shipwrecks only. Trained on the AI4Shipwrecks dataset (Thunder Bay NMS,
+28 sites, towfish side-scan sonar). Pipes, cylinders, and ghost nets are **not detected** —
+no annotated sonar training data exists for those classes.
+
+**Performance (test set, held-out sites never seen during training):**
+
+| Split | IoU | Dice |
+|-------|-----|------|
+| Validation (in-distribution) | 0.713 | 0.833 |
+| **Test (held-out sites)** | **0.427** | **0.598** |
+
+Test IoU 0.427 is the headline metric. SOTA on comparable sonar benchmarks: 0.55–0.77.
+No independent external sonar benchmark exists for this taxonomy.
+
+**Inference latency** (PyTorch FP32, 10 images, CPU=i7-12700H, GPU=RTX 4050, CUDA 12.1):
+
+| Backend | mean | min | max |
+|---------|------|-----|-----|
+| PyTorch FP32 / CPU | 4.29s | 1.53s | 6.23s |
+| PyTorch FP32 / GPU (RTX 4050) | 0.37s | 0.13s | 0.54s |
+| ONNX FP32 / CPU | 3.08s | 0.89s | 5.27s |
+| ONNX INT8 / CPU† | 5.26s | 2.09s | 7.06s |
+
+† INT8 is **slower** than FP32 on this CPU (dynamic-quant overhead). Max diff vs FP32 = 0.6497 WARN.
+Spread tracks tile count (8–32 tiles per image → 1.5–6.2s range). Full results: `pipeline/benchmark_results.json`.
+"""
+)
+
 if file_bytes:
     import tempfile
 
@@ -185,6 +215,7 @@ if file_bytes:
         rows = [
             {
                 "id": d["id"],
+                "review_status": reviews.get(d["id"], {}).get("action", "unreviewed"),
                 "heuristic_conf (0-100)": d["confidence"],
                 "model_prob": round(d["mean_prob"], 3),
                 "geo_score": d["geo_score"],
@@ -229,7 +260,7 @@ if file_bytes:
             det_id = d["id"]
             rev = reviews.get(det_id, {})
             action = rev.get("action")
-            badge = f" [{action}]" if action else ""
+            badge = f" [{action}]" if action else " [unreviewed]"
             flag_note = " (flagged: possible rock/shadow)" if d["likely_rock_or_shadow"] else ""
             label = f"Detection #{det_id}{badge}{flag_note}  conf={d['confidence']:.0f}"
 
