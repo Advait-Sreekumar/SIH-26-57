@@ -1,3 +1,5 @@
+import hashlib
+import datetime
 import io
 from pathlib import Path
 
@@ -5,12 +7,32 @@ import cv2
 import numpy as np
 import streamlit as st
 
+from categories import load_categories
 from confidence import score_detections
 from geotag import PixelGeoMapper, SonarMeta, save_report
 from infer import SonarDetector
 from preprocess import preprocess
+from review_store import (
+    delete_review,
+    get_reviews_for_run,
+    init_db,
+    register_run,
+    upsert_review,
+)
 from synthaug import apply_sonar_synth
 from xtf_io import load_input, nav_to_meta, slant_range_correct
+
+
+def make_run_id(file_bytes: bytes, image_name: str) -> str:
+    digest = hashlib.sha1(file_bytes).hexdigest()[:10]
+    ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+    stem = Path(image_name).stem[:20]
+    return f"{stem}_{ts}_{digest}"
+
+
+@st.cache_resource
+def get_db():
+    return init_db()
 
 st.set_page_config(page_title="Sonar Hazard Detector", layout="wide")
 st.title("Sonar Hazard Detection & Reporting")
@@ -124,7 +146,14 @@ if file_bytes:
         )
     mapper = PixelGeoMapper(clean.shape[0], clean.shape[1], meta)
     geod = mapper.geotag(scored)
-    json_path, csv_path = save_report(geod, Path("hazard_report"))
+    if "run_id" not in st.session_state or st.session_state.get("last_file") != name:
+        st.session_state["run_id"] = make_run_id(file_bytes, name)
+        st.session_state["last_file"] = name
+    run_id = st.session_state["run_id"]
+    conn = get_db()
+    register_run(conn, run_id, name, len(geod))
+    reviews = get_reviews_for_run(conn, run_id)
+    json_path, csv_path = save_report(geod, Path("hazard_report"), run_id=run_id, reviews=reviews)
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -168,5 +197,93 @@ if file_bytes:
         cdl, cdr = st.columns(2)
         cdl.download_button("Download JSON report", json_path.read_bytes(), "hazard_report.json", "application/json")
         cdr.download_button("Download CSV report", csv_path.read_bytes(), "hazard_report.csv", "text/csv")
+
+        # ---- Review panel ----
+        st.divider()
+        st.subheader("Review Detections")
+        st.caption(
+            "Mark each detection as confirmed, rejected, uncertain, or annotated. "
+            "Actions are saved immediately and persist across restarts."
+        )
+
+        categories = load_categories()
+        cat_keys = list(categories.keys())
+        cat_labels = [f"{k} — {v}" for k, v in categories.items()]
+
+        def _action_idx(det_id):
+            rev = reviews.get(det_id, {})
+            action = rev.get("action")
+            opts = ["confirm", "reject", "uncertain", "annotate"]
+            return opts.index(action) if action in opts else None
+
+        def _cat_idx(det_id):
+            rev = reviews.get(det_id, {})
+            cat = rev.get("category")
+            return cat_keys.index(cat) if cat in cat_keys else 0
+
+        for d in geod:
+            det_id = d["id"]
+            rev = reviews.get(det_id, {})
+            action = rev.get("action")
+            badge = f" [{action}]" if action else ""
+            flag_note = " (flagged: possible rock/shadow)" if d["likely_rock_or_shadow"] else ""
+            label = f"Detection #{det_id}{badge}{flag_note}  conf={d['confidence']:.0f}"
+
+            with st.expander(label, expanded=(action is None)):
+                col_img, col_form = st.columns([1, 2])
+
+                with col_img:
+                    # bbox crop from preprocessed image
+                    try:
+                        x1, y1, x2, y2 = d["bbox_xyxy"]
+                        pad = 10
+                        crop = clean[
+                            max(0, y1 - pad): min(clean.shape[0], y2 + pad),
+                            max(0, x1 - pad): min(clean.shape[1], x2 + pad),
+                        ]
+                        st.image((crop * 255).astype('uint8'), caption="Sonar crop", use_container_width=True)
+                    except Exception:
+                        st.caption("(crop unavailable)")
+                    st.metric("Sonar-heuristic confidence", f"{d['confidence']:.1f}")
+                    st.metric("Model prob", f"{d['mean_prob']:.3f}")
+                    st.caption(f"Lat {d['lat']:.6f} | Lon {d['lon']:.6f}")
+
+                with col_form:
+                    cur_action_idx = _action_idx(det_id)
+                    action_opts = ["confirm", "reject", "uncertain", "annotate"]
+                    radio_opts = action_opts + ["(no review)"]
+                    radio_idx = cur_action_idx if cur_action_idx is not None else len(action_opts)
+                    chosen_action = st.radio(
+                        "Action",
+                        radio_opts,
+                        index=radio_idx,
+                        key=f"action_{run_id}_{det_id}",
+                        horizontal=True,
+                    )
+                    chosen_cat = st.selectbox(
+                        "Category",
+                        cat_labels,
+                        index=_cat_idx(det_id),
+                        key=f"cat_{run_id}_{det_id}",
+                    )
+                    chosen_note = st.text_area(
+                        "Note (optional)",
+                        value=rev.get("note") or "",
+                        key=f"note_{run_id}_{det_id}",
+                        max_chars=500,
+                    )
+                    b_save, b_clear = st.columns(2)
+                    if b_save.button("Save", key=f"save_{run_id}_{det_id}"):
+                        if chosen_action != "(no review)":
+                            upsert_review(
+                                conn, run_id, det_id,
+                                chosen_action,
+                                cat_keys[cat_labels.index(chosen_cat)],
+                                chosen_note or None,
+                            )
+                            st.rerun()
+                    if b_clear.button("Clear", key=f"clear_{run_id}_{det_id}"):
+                        delete_review(conn, run_id, det_id)
+                        st.rerun()
 else:
     st.info("Upload a sonar image or select a sample to begin.")

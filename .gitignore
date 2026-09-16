@@ -49,3 +49,7 @@ Thumbs.db
 # Temp
 *.tmp
 *.bak
+
+# Phase 5 review workflow (per-session data)
+pipeline/review_store.db
+pipeline/categories.yaml

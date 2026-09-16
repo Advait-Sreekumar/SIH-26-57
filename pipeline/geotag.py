@@ -81,13 +81,25 @@ class PixelGeoMapper:
         return out
 
 
-def save_report(detections, out_base):
+_ACTION_TO_STATUS = {
+    "confirm": "human-confirmed",
+    "reject": "human-rejected",
+    "uncertain": "human-uncertain",
+    "annotate": "human-annotate",
+}
+
+
+def save_report(detections, out_base, run_id=None, reviews=None):
     out_base = Path(out_base)
+    reviews = reviews or {}
     records = []
     for d in detections:
+        det_id = d["id"]
+        rev = reviews.get(det_id, {})
+        action = rev.get("action")
         records.append(
             {
-                "id": d["id"],
+                "id": det_id,
                 "lat": d.get("lat"),
                 "lon": d.get("lon"),
                 "bbox_xyxy": d["bbox_xyxy"],
@@ -97,11 +109,24 @@ def save_report(detections, out_base):
                 "geo_score": d["geo_score"],
                 "shadow_score": d["shadow_score"],
                 "likely_rock_or_shadow": d["likely_rock_or_shadow"],
+                "review_status": _ACTION_TO_STATUS.get(action, "unreviewed"),
+                "review_category": rev.get("category"),
+                "review_note": rev.get("note"),
+                "reviewed_at": rev.get("reviewed_at"),
             }
         )
+    n_reviewed = sum(1 for r in records if r["review_status"] != "unreviewed")
+    n_confirmed = sum(1 for r in records if r["review_status"] == "human-confirmed")
+    payload = {
+        "run_id": run_id,
+        "n_detections": len(records),
+        "n_reviewed": n_reviewed,
+        "n_confirmed": n_confirmed,
+        "detections": records,
+    }
     json_path = out_base.with_suffix(".json")
     csv_path = out_base.with_suffix(".csv")
-    json_path.write_text(json.dumps({"n_detections": len(records), "detections": records}, indent=2))
+    json_path.write_text(json.dumps(payload, indent=2))
     import pandas as pd
 
     pd.DataFrame(records).to_csv(csv_path, index=False)

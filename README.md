@@ -102,4 +102,4 @@ export SONAR_TEST_IMAGES=/path/to/test/images
 2. Confidence score is uncalibrated — no Platt scaling or isotonic regression applied
 3. Detection scope limited to shipwrecks; pipes/nets/cylinders not yet covered
 4. ONNX FP32 export verified 2026-09-16: max diff 2.57e-05 PASS. INT8 dynamic-quant diff 0.6497 WARN (use FP32 for inference; see `AI4Shipwrecks/AI4Shipwrecks/onnx_err.txt`).
-5. No human-in-the-loop review workflow yet (planned Phase 5)
+5. Human-in-the-loop review workflow implemented (Phase 5): per-detection confirm/reject/uncertain/annotate, SQLite persistence, generic category system
