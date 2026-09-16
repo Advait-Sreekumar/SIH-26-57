@@ -28,18 +28,21 @@ Detection of pipes, cylinders, and ghost/entangled nets is under investigation
 (Phase 1.5 feasibility study). No capability for these classes is claimed until
 a model has been evaluated on real (non-purely-synthetic) sonar imagery of those classes.
 
-## Confidence Score
+## Sonar-Heuristic Confidence Score — Not a Probability
 
 The 0–100 "confidence" score shown in the UI is a **heuristic composite**, not a
 calibrated probability:
 
 ```
 conf = 100 * (0.6 * model_score + 0.4 * (0.7 * geo + 0.3 * shadow))
+
+model_score = 0.5 * mean_sigmoid_prob + 0.5 * peak_sigmoid_prob
 ```
 
-where `geo` encodes aspect ratio (target ~3.5), solidity, and edge sharpness;
-`shadow` measures target-vs-background contrast. Values below 35 are flagged as
-possible rock/shadow false positives.
+where `geo` encodes aspect ratio (target ~3.5), convex-hull solidity, and boundary
+edge sharpness; `shadow` measures target-vs-surrounding-ring median contrast.
+These are sonar-domain heuristics, not an acoustic propagation model.
+Values below 35 are flagged as possible rock/shadow false positives.
 
 ## External Validation
 

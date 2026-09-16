@@ -91,15 +91,19 @@ Export script: `AI4Shipwrecks/AI4Shipwrecks/export_onnx.py`
 
 ---
 
-## Confidence Score — Not a Probability
+## Sonar-Heuristic Confidence Score — Not a Probability
 
 ```
 conf = 100 * (0.6 * model_score + 0.4 * (0.7 * geo + 0.3 * shadow))
+
+model_score  = 0.5 * mean_sigmoid_prob + 0.5 * peak_sigmoid_prob
+geo          = 0.40 * aspect_score + 0.25 * solidity_score + 0.35 * edge_sharpness
+shadow       = target-vs-surrounding-ring median contrast (clipped 0–1)
 ```
 
-This is an uncalibrated heuristic. It is not a posterior probability.  
-No Platt scaling or isotonic regression has been applied.  
-The `likely_rock_or_shadow` threshold (35.0) was chosen by inspection, not by optimising a threshold on labelled false-positive data.
+`geo` and `shadow` are sonar-domain heuristics (not an acoustic propagation model).
+No Platt scaling or isotonic regression applied — score is not a calibrated probability.
+The `likely_rock_or_shadow` threshold (35.0) was set by inspection, not threshold optimisation.
 
 ---
 
