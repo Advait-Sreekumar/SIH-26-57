@@ -1,0 +1,43 @@
+ONNX Export Log -- AI4Shipwrecks U-Net
+======================================
+Date: 2026-09-16
+Script: AI4Shipwrecks/AI4Shipwrecks/export_onnx.py
+
+ROOT CAUSE OF ORIGINAL ERROR
+------------------------------
+AttributeError: cannot import name 'float4_e2m1fn' from 'ml_dtypes'
+  in onnx/_mapping.py:104 at import time (onnx 1.21.0 + ml_dtypes 0.6.0).
+  Float4E2M1 type is only in ONNX opset 20 (FP8 ops); opset 16 avoids it.
+  onnx/_mapping.py builds the full dtype map at module init, so onnx fails
+  to import at all on this environment.
+
+SECONDARY ERROR (discovered during fix)
+-----------------------------------------
+RuntimeError in load_state_dict: Missing scSE attention keys.
+  The checkpoint (best_model_v1_iou0.71.pth) has NO attention keys among
+  its 278 weight tensors -- the model was trained without decoder_attention_type.
+  Fix: auto-detect from checkpoint keys; set to None if absent.
+
+FIXES APPLIED
+--------------
+1. opset_version=16 in torch.onnx.export
+2. has_scse = any('attention' in k for k in ckpt['model_state_dict'])
+   decoder_attention_type='scse' if has_scse else None
+
+ACTUAL MEASURED RESULTS (2026-09-16, verified run)
+----------------------------------------------------
+Input: random normal (1,1,512,512) float32, seed 42, scale x0.3
+
+FP32 export  wreck_unet.onnx  opset 16
+  max|PyTorch - ONNX_FP32| = 2.57e-05  [PASS]  (threshold < 1e-4)
+
+INT8 export  wreck_unet_int8.onnx  dynamic QUInt8
+  max|PyTorch - ONNX_INT8| = 0.6497  [WARN]  (threshold < 0.5)
+  Dynamic quantisation quantises weights only; per-tensor calibration would
+  reduce this. FP32 model is the validated reference for production use.
+  INT8 is retained for throughput benchmarking only.
+
+ENVIRONMENT
+-----------
+torch 2.5.1+cu121  onnx 1.21.0  onnxruntime 1.21.1
+smp 0.5.0  numpy 2.4.6  ml_dtypes 0.6.0  Python 3.11

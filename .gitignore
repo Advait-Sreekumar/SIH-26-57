@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Model checkpoints and ONNX exports
+*.pth
+*.pt
+*.onnx
+*.ckpt
+*.safetensors
+
+# Dataset images and annotations (large binary data)
+AI4Shipwrecks/AI4Shipwrecks/train/
+AI4Shipwrecks/AI4Shipwrecks/test/
+external_test/
+SeabedObjects-Ship-and-Airplane-dataset/
+archived/
+
+# Generated outputs and plots
+hazard_report.json
+hazard_report.csv
+demo_out/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+*.tmp
+*.bak
