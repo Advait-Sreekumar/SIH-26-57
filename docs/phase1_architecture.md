@@ -112,5 +112,5 @@ The `likely_rock_or_shadow` threshold (35.0) was set by inspection, not threshol
 - No detection capability for pipes, cylinders, or ghost nets (no validated training data)
 - No external sonar benchmark validation (SCTD is aerial photography, not sonar)
 - No calibrated probability output
-- No real-time performance claim (inference time not yet measured on target hardware)
+- No real-time performance claim — measured latency: PyTorch FP32/CPU 4.29s mean, GPU (RTX 4050) 0.37s mean, ONNX FP32/CPU 3.08s mean (10 images, 2476×1728px, seed=42). See `pipeline/benchmark_results.json`.
 - No military/defense deployment readiness

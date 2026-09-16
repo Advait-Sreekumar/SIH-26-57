@@ -101,5 +101,13 @@ export SONAR_TEST_IMAGES=/path/to/test/images
 1. Test IoU 0.43 is below published SOTA for sonar ATR (0.55–0.77 Dice/IoU)
 2. Confidence score is uncalibrated — no Platt scaling or isotonic regression applied
 3. Detection scope limited to shipwrecks; pipes/nets/cylinders not yet covered
-4. ONNX FP32 export verified 2026-09-16: max diff 2.57e-05 PASS. INT8 dynamic-quant diff 0.6497 WARN (use FP32 for inference; see `AI4Shipwrecks/AI4Shipwrecks/onnx_err.txt`).
+4. Inference latency (10 images, seed=42, CPU=Intel Core i7-12700H, GPU=RTX 4050 Laptop, CUDA 12.1):
+   | Backend | mean | min | max |
+   |---------|------|-----|-----|
+   | PyTorch FP32 / CPU | 4.29s | 1.53s | 6.23s |
+   | PyTorch FP32 / GPU (RTX 4050) | 0.37s | 0.13s | 0.54s |
+   | ONNX FP32 / CPU | 3.08s | 0.89s | 5.27s |
+   | ONNX INT8 / CPU† | 5.26s | 2.09s | 7.06s |
+
+   † INT8 max diff vs FP32 = 0.6497 WARN — use FP32 for inference. INT8 is **slower** on this CPU (dynamic quant overhead outweighs smaller model). ONNX sizes: FP32 97.7 MB, INT8 24.6 MB. Times cover preprocess+tile_inference; exclude file I/O and report write. Full results in `pipeline/benchmark_results.json`.
 5. Human-in-the-loop review workflow implemented (Phase 5): per-detection confirm/reject/uncertain/annotate, SQLite persistence, generic category system

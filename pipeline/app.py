@@ -1,4 +1,5 @@
 import hashlib
+import time
 import datetime
 import io
 from pathlib import Path
@@ -120,6 +121,7 @@ if file_bytes:
 
     detector = get_detector()
     detector.threshold = threshold
+    _t_infer_start = time.perf_counter()
     with st.spinner("Running segmentation..."):
         if input_mode == "XTF sonar log":
             h, w = clean.shape
@@ -136,6 +138,7 @@ if file_bytes:
             prob, mask, dets = detector(clean, preprocessed=True)
         dets = detector.extract_detections(prob, mask, min_area=min_area)
         scored = score_detections(clean, prob, dets, mask)
+    _t_infer_s = time.perf_counter() - _t_infer_start
 
     if input_mode == "XTF sonar log":
         meta = meta_from_file
@@ -173,6 +176,7 @@ if file_bytes:
         st.image(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB), use_container_width=True)
 
     st.subheader(f"{len(geod)} detections")
+    st.caption(f"Inference time: {_t_infer_s:.2f}s (preprocess + tile inference; PyTorch FP32 / CPU)")
     st.caption(
         "Confidence is a heuristic composite score (0–100, uncalibrated). "
         "It is NOT a probability. Values below 35 are flagged as possible rock/shadow false positives."

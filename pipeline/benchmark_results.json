@@ -1,0 +1,101 @@
+{
+  "hardware": {
+    "cpu": "Intel64 Family 6 Model 151 Stepping 2, GenuineIntel",
+    "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "cuda_version": "12.1",
+    "torch_version": "2.5.1+cu121"
+  },
+  "pytorch_fp32_cpu": {
+    "mean_s": 4.29,
+    "min_s": 1.528,
+    "max_s": 6.231,
+    "std_s": 1.75,
+    "n": 10,
+    "tile_counts": [
+      20,
+      32,
+      24,
+      20,
+      8,
+      8,
+      16,
+      32,
+      32,
+      32
+    ]
+  },
+  "pytorch_fp32_gpu": {
+    "mean_s": 0.371,
+    "min_s": 0.125,
+    "max_s": 0.544,
+    "std_s": 0.157,
+    "n": 10,
+    "tile_counts": [
+      20,
+      32,
+      24,
+      20,
+      8,
+      8,
+      16,
+      32,
+      32,
+      32
+    ]
+  },
+  "onnx_fp32_cpu": {
+    "mean_s": 3.077,
+    "min_s": 0.885,
+    "max_s": 5.268,
+    "std_s": 1.517,
+    "n": 10,
+    "tile_counts": [
+      20,
+      32,
+      24,
+      20,
+      8,
+      8,
+      16,
+      32,
+      32,
+      32
+    ]
+  },
+  "onnx_int8_cpu": {
+    "mean_s": 5.261,
+    "min_s": 2.094,
+    "max_s": 7.063,
+    "std_s": 1.84,
+    "n": 10,
+    "tile_counts": [
+      20,
+      32,
+      24,
+      20,
+      8,
+      8,
+      16,
+      32,
+      32,
+      32
+    ]
+  },
+  "model_sizes_mb": {
+    "onnx_fp32": 97.7,
+    "onnx_int8": 24.6
+  },
+  "sample_images": [
+    "Shamrock_02.png",
+    "Barge_No_1_09.png",
+    "Artificial_Reef_04.png",
+    "Viator_09.png",
+    "Haltiner_Barge_05.png",
+    "Haltiner_Barge_01.png",
+    "Corsican_04.png",
+    "Barge_No_1_12.png",
+    "Barge_No_1_08.png",
+    "Viator_01.png"
+  ],
+  "notes": "Timing covers preprocess+tile_inference+sigmoid+mask+connected_components. Excludes file I/O, geotagging, and report write. INT8 latency gain must be read alongside accuracy tradeoff (max diff 0.6497 vs FP32 -- use FP32 for inference). ONNX GPU (CUDA EP) not benchmarked: onnxruntime-gpu not in requirements.txt."
+}
