@@ -12,49 +12,49 @@ clear explanation of what would be needed.
 
 | Class | Verdict | Confidence |
 |-------|---------|------------|
-| Underwater pipelines / cylindrical infrastructure | **Achievable with caveats** | Medium |
-| Ghost/entangled fishing nets | **Not yet achievable** | High |
-| Generic cylindrical seabed debris | **Synthetic-only / unproven** | Low |
+| Underwater pipelines / cylindrical infrastructure | **Not achievable in available time** (SubPipe: GPL-3.0 blocks use + AUV vs towfish domain mismatch) | High |
+| Ghost/entangled fishing nets | **Not yet achievable** (no public labeled sonar dataset exists anywhere) | High |
+| Generic cylindrical seabed debris | **Synthetic-only / unproven** (no real-data validation path) | High |
 
 ---
 
 ## 1. Underwater Pipelines / Cylinders
 
-### Dataset found: SubPipe
+### Dataset investigated: SubPipe
 
-- **What it is:** A submarine pipeline inspection dataset from Orebro University /
-  REMARO project (EU Horizon 2020). Contains annotated sonar imagery from AUV pipeline
-  inspection surveys.
-- **Reference:** Gonzalez-Garcia et al., GitHub: https://github.com/remaro-network/SubPipe
-- **Modality:** Primarily forward-looking sonar (FLS) / imaging sonar. NOT side-scan sonar.
-- **Annotations:** Segmentation masks for pipeline surface.
-- **License:** Academic use (CC BY or similar). Requires verifying current terms at the
-  GitHub repository before any use.
-- **Size:** Hundreds of frames (exact count: verify at repo — not assumed from memory).
-- **Access:** Public via GitHub/Zenodo. Direct download link to be confirmed.
+- **Repository:** https://github.com/remaro-network/SubPipe-dataset
+- **Paper:** https://arxiv.org/abs/2401.17907 (Gonzalez-Garcia et al.)
+- **Modality:** Side-scan sonar (SSS) — LF and HF channels — plus RGB optical and IMU
+- **Annotated SSS frames:** ~6,335 bounding-box annotations across 10,030 SSS images
+- **Annotation type on SSS channel:** Bounding boxes only (COCO + YOLO)
+  Segmentation masks exist only on the optical/RGB channel, not the sonar channel.
 
-### Critical modality mismatch
+### License — BLOCKS USE
 
-SubPipe uses forward-looking sonar. The current pipeline uses side-scan sonar (SSS).
-These are fundamentally different:
-- FLS: circular sector image, range-bearing, used for obstacle avoidance / inspection
-- SSS: waterfall strip image, acoustic shadows to one/both sides, used for seabed mapping
+Repository LICENSE: GPL-3.0 (copyleft). Any derivative work including trained model
+weights and submission tooling must also be GPL-3.0. The README additionally states
+the data is "property of Oceanscan-MST" with no explicit training rights grant.
+A public SIH submission cannot comply with GPL-3.0 copyleft requirements without
+GPL-licensing the entire submission.
 
-A U-Net trained on SSS shipwreck data CANNOT be directly fine-tuned on FLS pipeline data
-without architectural and preprocessing changes.
+### Domain shift — additional blocking concern
 
-### What would be needed to claim pipe detection
+SubPipe was collected by an AUV (Oceanscan-MST LAUV) with a side-mounted SSS.
+AI4Shipwrecks uses surface-towed towfish SSS. These differ in:
+- Grazing angle (steep AUV-mounted vs shallow towfish)
+- Swath width and altitude
+- Seafloor illumination geometry and shadow geometry
 
-1. Obtain SubPipe dataset (verify license, check if it contains SSS data in addition to FLS)
-2. If FLS only: either (a) find an SSS pipeline dataset, or (b) adapt preprocessing for FLS
-   and train a separate FLS-specific model clearly distinguished from the SSS model
-3. Evaluate on a held-out partition, report IoU/Dice
-4. Only then: add a "pipeline detection" mode to the UI, clearly labelled with its modality
+This is the same class of domain mismatch that invalidated SCTD cross-domain eval.
 
-### Verdict: achievable but requires 3-5 days of work minimum
+### Verdict: NOT ACHIEVABLE IN AVAILABLE TIME
 
-Not achievable before the SIH demo without cutting corners that violate the project's
-honesty constraints. Should be documented as "Phase 2 roadmap" in the submission.
+Two independent blocking criteria: license incompatibility and domain shift.
+See docs/subpipe_gonogo.md for the full go/no-go analysis.
+
+**What would be needed:** License-compatible, towfish-survey SSS pipeline data
+with segmentation annotations (not bounding boxes). Time to working model if
+data existed: 1–2 weeks.
 
 ---
 

@@ -24,9 +24,17 @@ Test IoU 0.427 is currently below this range.
 **The model detects shipwrecks only.** It is trained exclusively on the AI4Shipwrecks
 dataset (Thunder Bay National Marine Sanctuary shipwreck surveys).
 
-Detection of pipes, cylinders, and ghost/entangled nets is under investigation
-(Phase 1.5 feasibility study). No capability for these classes is claimed until
-a model has been evaluated on real (non-purely-synthetic) sonar imagery of those classes.
+Detection of pipes, cylinders, and ghost/entangled nets is **not achievable in the
+current version** — investigated and closed for this submission:
+- **Pipes/cylinders (SubPipe):** dataset found, but GPL-3.0 license blocks use in a
+  public submission; additionally, AUV-mounted vs towfish SSS collection geometry
+  creates the same domain mismatch that invalidated SCTD (see `docs/subpipe_gonogo.md`)
+- **Ghost nets:** no public labeled sonar dataset exists anywhere; this is a
+  field-wide data gap, not a limitation specific to this approach
+- **Generic cylinders:** no real-data validation path; synthetic-only training would
+  be unvalidated capability
+
+All three are documented as future work in `docs/phase1_5_class_expansion_feasibility.md`.
 
 ## Sonar-Heuristic Confidence Score — Not a Probability
 
