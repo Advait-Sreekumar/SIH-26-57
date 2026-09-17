@@ -1,0 +1,38 @@
+{
+  "harness": "robustness_harness.py",
+  "n_images": 120,
+  "rng_seed": 42,
+  "test_dir": "C:\\Users\\advait\\Documents\\Sih\\SIH\\AI4Shipwrecks\\AI4Shipwrecks\\test",
+  "metric": "pixel_iou",
+  "baseline": {
+    "mean_iou": 0.058111944750683965,
+    "mean_n_detections": 3.425,
+    "n_valid_iou": 106
+  },
+  "perturbations": {
+    "speckle_noise": {
+      "mean_iou": 0.012804776764945399,
+      "mean_n_detections": 4.691666666666666,
+      "iou_delta_vs_baseline": -0.0453,
+      "n_valid_iou": 104
+    },
+    "synthesize_shadow": {
+      "mean_iou": 0.05787102072922096,
+      "mean_n_detections": 3.0,
+      "iou_delta_vs_baseline": -0.0002,
+      "n_valid_iou": 106
+    },
+    "radial_distortion": {
+      "mean_iou": 0.05248110986570415,
+      "mean_n_detections": 4.483333333333333,
+      "iou_delta_vs_baseline": -0.0056,
+      "n_valid_iou": 102
+    },
+    "heave_pitch_roll": {
+      "mean_iou": 0.03270894097843119,
+      "mean_n_detections": 10.108333333333333,
+      "iou_delta_vs_baseline": -0.0254,
+      "n_valid_iou": 119
+    }
+  }
+}

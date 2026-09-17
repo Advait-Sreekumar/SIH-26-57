@@ -212,3 +212,20 @@ For a production deployment these would need to be addressed before exposing the
 The Santos et al. 2024 dataset (MILCO/NOMBO annotations) was used for one purpose only: a cross-domain generalisation check — measuring whether features trained on shipwreck imagery transfer at all to a different SSS sensor domain. The result (MILCO Det@0.5 = 0.0%, NOMBO Det@0.5 = 2.2%) shows they do not. This is documented as "cross-domain generalization check (non-mine anomalous-object subset)" throughout and is an informative characterisation of the model's domain specificity, not a mine-detection evaluation.
 
 Per the project's explicit constraint list: no claims of military/defense deployment readiness appear anywhere in this submission.
+
+---
+
+## Q13. How robust is the model to sonar acquisition artefacts?
+
+**Short answer:** Varies by perturbation type. Speckle noise and platform motion are the most damaging; shadow synthesis and radial distortion have minimal effect. Measured on 120 held-out test images.
+
+`pipeline/robustness_harness.py` ran each of the four `synthaug.py` perturbation types against the full held-out test set (120 images, seed=42). Baseline clean mean IoU = 0.0581.
+
+| Perturbation | Delta IoU | Relative drop | False-positive change |
+|---|---|---|---|
+| Speckle noise | -0.0453 | -78% | +38% more detections |
+| Shadow synthesis | -0.0002 | negligible | stable |
+| Radial distortion | -0.0056 | -10% | +31% more detections |
+| Heave/pitch/roll | -0.0254 | -44% | **+196% more detections** (3.4 → 10.1) |
+
+The heave/pitch/roll result is the most operationally significant: platform motion shear creates bright edge artefacts that the model misclassifies as wreck targets, tripling false-positive count. This is a documented limitation — no robustness threshold is certified; these are characterisation numbers. Full data: `pipeline/robustness_results.json`.

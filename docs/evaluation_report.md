@@ -112,7 +112,24 @@ The score is useful as a rough within-survey ranking signal. It is labelled "Son
 
 Composition: `apply_sonar_synth(img, p_speckle=0.8, p_shadow=0.5, p_radial=0.3, p_heave=0.5)` — stochastic.
 
-**Measured before/after IoU or detection-rate deltas: not available.** The augmentations are implemented and wired as a "Stress test" toggle in `app.py`, but a reproducible harness measuring clean vs. perturbed performance on the held-out test set has not been run. This is a documented gap — the perturbations are present for demonstration, not for a validated robustness claim. Writing the harness and producing measured numbers is listed as future work.
+**Harness:** `pipeline/robustness_harness.py` — 120 test images, seed=42. Each image run clean then once with a single perturbation at default strength. Metric: mean pixel IoU over images where at least one prediction or ground-truth mask was present (n=102–119 depending on perturbation).
+
+Baseline (clean, no perturbation): mean IoU = 0.0581, mean detections per image = 3.4.
+
+**Measured per-perturbation deltas** (full data: `pipeline/robustness_results.json`):
+
+| Perturbation | Perturbed IoU | Delta IoU | Mean detections (perturbed) | Notes |
+|---|---|---|---|---|
+| `speckle_noise` | 0.0128 | **-0.0453 (-78%)** | 4.7 | Largest IoU drop; multiplicative speckle degrades segmentation boundaries |
+| `synthesize_shadow` | 0.0579 | -0.0002 (negligible) | 3.0 | Shadow bands have minimal effect — model is already shadow-aware |
+| `radial_distortion` | 0.0525 | -0.0056 (-10%) | 4.5 | Mild geometric warp causes modest boundary errors |
+| `heave_pitch_roll` | 0.0327 | **-0.0254 (-44%)** | 10.1 | Large false-positive spike (3.4 → 10.1 detections) from platform motion shear |
+
+**Key findings:**
+- Speckle noise is the most damaging perturbation to segmentation quality (-78% relative IoU).
+- Heave/pitch/roll causes a 3× false-positive spike (10.1 vs 3.4 clean baseline) — motion shear creates bright edge artefacts the model incorrectly classifies as targets.
+- Shadow synthesis and radial distortion have limited effect on IoU, suggesting the model has some inherent robustness to these.
+- No robustness threshold is certified — these are characterisation numbers, not pass/fail guarantees.
 
 ---
 
@@ -140,7 +157,7 @@ Tests in `test_pipeline.py` found two real production bugs, now fixed:
 - No military/defense deployment readiness
 - No cross-domain generalisation — directly measured and confirmed: model does not transfer across SSS domains
 - No mine-detection capability — the Santos 2024 dataset was used only to measure cross-domain failure, framed throughout as "cross-domain generalization check (non-mine anomalous-object subset)"
-- No measured robustness numbers — synthaug.py implemented, harness not yet run
+- No robustness claim — perturbation deltas measured (Section 6) but no robustness threshold is certified
 - No in-domain per-frame FP rate — pixel-level IoU does not measure detection-level false alarms on non-wreck frames
 
 ---
@@ -151,6 +168,7 @@ Tests in `test_pipeline.py` found two real production bugs, now fixed:
 |------|------|
 | Inference benchmark | `pipeline/benchmark_results.json` |
 | Cross-domain check | `pipeline/crossdomain_results.json` |
+| Robustness harness | `pipeline/robustness_results.json` |
 | Dataset / license audit | `docs/24574879_gonogo.md`, `docs/subpipe_gonogo.md` |
 | Phase 0 audit findings | `docs/phase0_gap_analysis.md` |
 | Architecture as-built | `docs/phase1_architecture.md` |
