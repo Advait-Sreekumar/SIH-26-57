@@ -119,7 +119,16 @@ Spread tracks tile count (8–32 tiles per image → 1.5–6.2s range). Full res
 """
 )
 
+_MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200 MB hard limit for this local demo
+
 if file_bytes:
+    if len(file_bytes) > _MAX_UPLOAD_BYTES:
+        st.error(
+            f"File is {len(file_bytes) / 1024 / 1024:.1f} MB — exceeds the 200 MB upload limit. "
+            "Reduce file size or split the survey log before uploading."
+        )
+        st.stop()
+
     import tempfile
 
     suffix = Path(name).suffix
@@ -128,7 +137,11 @@ if file_bytes:
         tmp_path = tmp.name
 
     if input_mode == "XTF sonar log":
-        wf, nav, info = load_input(tmp_path)
+        try:
+            wf, nav, info = load_input(tmp_path)
+        except ValueError as exc:
+            st.error(f"Could not parse XTF file: {exc}")
+            st.stop()
         st.sidebar.success(
             f"Parsed: {info.get('sonar_name', b'?').decode()} | {info['n_pings']} pings | "
             f"waterfall {wf.shape[0]}x{wf.shape[1]}"

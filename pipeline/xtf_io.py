@@ -9,7 +9,11 @@ M_PER_DEG_LAT = 111320.0
 def read_xtf(path):
     import pyxtf
 
-    file_hdr, packets = pyxtf.xtf_read(str(path))
+    try:
+        file_hdr, packets = pyxtf.xtf_read(str(path))
+    except Exception as exc:
+        raise ValueError(f"Cannot parse XTF file '{path}': {exc}") from exc
+
     sonar = packets.get(pyxtf.XTFHeaderType.sonar, [])
     if not sonar:
         raise ValueError(f"No sonar pings found in {path}")
@@ -17,7 +21,10 @@ def read_xtf(path):
     rows = []
     nav = []
     for ping_hdr in sonar:
-        chan_list = list(zip(ping_hdr.ping_chan_headers, ping_hdr.data))
+        try:
+            chan_list = list(zip(ping_hdr.ping_chan_headers, ping_hdr.data))
+        except Exception:
+            continue  # skip malformed ping, keep going
         chans = {}
         for chan_hdr, data in chan_list:
             chans[int(chan_hdr.ChannelNumber)] = data
@@ -46,6 +53,9 @@ def read_xtf(path):
                 "range_m": float(ping_hdr.RangeToFish),
             }
         )
+
+    if not rows:
+        raise ValueError(f"XTF file '{path}' contained no readable sonar data (all pings malformed or missing channels).")
 
     max_val = max(np.max(r) for r in rows) or 1.0
     waterfall = np.stack([r / max_val for r in rows]).astype(np.float32)
