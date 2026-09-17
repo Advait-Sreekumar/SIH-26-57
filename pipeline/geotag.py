@@ -64,7 +64,7 @@ class PixelGeoMapper:
         ground = ground if ground > 0 else abs(across)
         ground = np.sign(across) * ground
         along = y_px * self.m_per_px_along
-        return ground * self.east[0] + along * self.east[1], ground * self.north[0] + along * self.north[1]
+        return ground * self.north[0] + along * self.east[0], ground * self.north[1] + along * self.east[1]
 
     def pixel_to_latlon(self, x_px, y_px):
         e, n = self.pixel_to_local_m(x_px, y_px)

@@ -4,6 +4,8 @@ import numpy as np
 
 def _component_stats(gray, comp_mask):
     ys, xs = np.nonzero(comp_mask)
+    if len(xs) == 0:
+        return 1.0, 1.0, 0.0
     h, w = comp_mask.shape
     area = len(xs)
     x0, x1, y0, y1 = xs.min(), xs.max(), ys.min(), ys.max()
