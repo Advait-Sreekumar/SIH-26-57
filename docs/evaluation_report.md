@@ -121,9 +121,12 @@ Composition: `apply_sonar_synth(img, p_speckle=0.8, p_shadow=0.5, p_radial=0.3, 
 | File | Tests | Status | Scope |
 |------|-------|--------|-------|
 | `pipeline/test_review_store.py` | 7 | **All pass** | Review persistence, run-id isolation, action validation, FK enforcement, note normalisation, overwrite semantics, truncation |
+| `pipeline/test_pipeline.py` | 33 | **All pass** | Lee filter, CLAHE, tile/blend, preprocess, geometric confidence, shadow score, heuristic formula, pixel→lat/lon, geotag |
 | `pipeline/test_xtf_pipeline.py` | 0 pytest-collectable | Demo script | Has hardcoded `D:\SIH\` paths; no `def test_*` functions; not collected by pytest |
 
-Coverage gaps: no unit tests for `preprocess.py` (Lee filter, CLAHE, TileBlender), `confidence.py` (heuristic formula, threshold behaviour), or `geotag.py` (pixel→lat/lon transform). These are documented as future work.
+Tests in `test_pipeline.py` found two real production bugs, now fixed:
+- `confidence.py` `_component_stats`: `xs.min()` on an empty mask raised `ValueError`; now returns neutral values `(1.0, 1.0, 0.0)`.
+- `geotag.py` `pixel_to_local_m`: along-track displacement was contributing to easting instead of northing; heading=0 now correctly maps higher y_px to higher latitude.
 
 ---
 
