@@ -50,6 +50,17 @@ Thumbs.db
 *.tmp
 *.bak
 
+# Log files
+*.log
+*_log.txt
+*_err.txt
+
+# Dataset archives and extracted folders
+*.zip
+24574879/
+AI4Shipwrecks/AI4Shipwrecks/extras/
+AI4Shipwrecks/AI4Shipwrecks/runs/*.png
+
 # Phase 5 review workflow (per-session data)
 pipeline/review_store.db
 pipeline/categories.yaml
