@@ -1,0 +1,42 @@
+{
+  "framing": "cross-domain generalization check (non-mine anomalous-object subset)",
+  "model": "shipwreck U-Net (AI4Shipwrecks, towfish SSS, CC-BY-4.0)",
+  "eval_dataset": "Santos et al. 2024, 24574879, AUV SSS, license: highly likely CC-BY-4.0 (not independently confirmed at repo level)",
+  "metric": "IoU-of-boxes (bbox derived from mask connected components vs YOLO GT bbox)",
+  "note_do_not_compare": "These numbers are NOT comparable to pixel-level test IoU 0.427 (different metric, different domain)",
+  "iou_threshold_strict": 0.5,
+  "iou_threshold_lenient": 0.1,
+  "total_images": 1170,
+  "background_frames": 866,
+  "bg_frames_with_any_prediction": 247,
+  "fp_boxes_on_background_frames": 662,
+  "false_positive_rate_on_bg_frames": 0.2852,
+  "per_class": {
+    "MILCO": {
+      "n_gt_objects": 437,
+      "mean_iou_of_boxes": 0.007,
+      "detection_rate_iou_ge_0.1": 0.0297,
+      "detection_rate_iou_ge_0.5": 0.0,
+      "iou_distribution": {
+        "0.0": 420,
+        "0.0-0.1": 4,
+        "0.1-0.3": 9,
+        "0.3-0.5": 4,
+        ">=0.5": 0
+      }
+    },
+    "NOMBO": {
+      "n_gt_objects": 231,
+      "mean_iou_of_boxes": 0.0373,
+      "detection_rate_iou_ge_0.1": 0.1082,
+      "detection_rate_iou_ge_0.5": 0.0216,
+      "iou_distribution": {
+        "0.0": 198,
+        "0.0-0.1": 8,
+        "0.1-0.3": 15,
+        "0.3-0.5": 5,
+        ">=0.5": 5
+      }
+    }
+  }
+}
