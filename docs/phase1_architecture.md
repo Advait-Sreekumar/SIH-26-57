@@ -114,3 +114,4 @@ The `likely_rock_or_shadow` threshold (35.0) was set by inspection, not threshol
 - No calibrated probability output
 - No real-time performance claim — measured latency: PyTorch FP32/CPU 4.29s mean, GPU (RTX 4050) 0.37s mean, ONNX FP32/CPU 3.08s mean (10 images, 2476×1728px, seed=42). See `pipeline/benchmark_results.json`.
 - No military/defense deployment readiness
+- No cross-domain generalisation to AUV SSS — cross-domain check (non-mine anomalous-object subset, Santos et al. 2024) ran 2026-09-17: MILCO Det@0.5 0.0%, NOMBO Det@0.5 2.2%, FP rate on background 28.5%. Model features do not transfer across SSS domains (towfish 132 kHz vs AUV 900-1800 kHz). See `pipeline/crossdomain_results.json`.

@@ -111,3 +111,4 @@ export SONAR_TEST_IMAGES=/path/to/test/images
 
    † INT8 max diff vs FP32 = 0.6497 WARN — use FP32 for inference. INT8 is **slower** on this CPU (dynamic quant overhead outweighs smaller model). ONNX sizes: FP32 97.7 MB, INT8 24.6 MB. Times cover preprocess+tile_inference; exclude file I/O and report write. Full results in `pipeline/benchmark_results.json`.
 5. Human-in-the-loop review workflow implemented (Phase 5): per-detection confirm/reject/uncertain/annotate, SQLite persistence, generic category system
+6. Cross-domain generalisation: shipwreck model evaluated on Santos et al. 2024 AUV SSS dataset (1,170 images, "cross-domain generalization check (non-mine anomalous-object subset)"). MILCO Det@0.5 0.0%, NOMBO Det@0.5 2.2%, FP rate on background 28.5%. Model does not transfer across SSS sensor domains (towfish vs AUV, frequency mismatch). See `pipeline/crossdomain_results.json`.
