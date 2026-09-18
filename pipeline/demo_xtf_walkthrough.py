@@ -1,8 +1,14 @@
-"""Manual walkthrough demo -- NOT collected by pytest. Requires a real XTF file at the
-hardcoded path below. Run directly:  python pipeline/demo_xtf_walkthrough.py
+"""Manual walkthrough demo -- NOT collected by pytest. Not part of the Streamlit demo flow.
+Run directly:  python pipeline/demo_xtf_walkthrough.py
 
 This is not test coverage. See pipeline/test_pipeline.py and pipeline/test_review_store.py
-for the actual pytest suite. The XTF path must be updated for your local environment.
+for the actual pytest suite.
+
+Two paths require local updates before running:
+  XTF     (line 16): path to a real .xtf file on your machine
+  out_dir (line 49): output directory; must exist before running
+The demo will fail with FileNotFoundError on both if left as-is on any machine other than
+the original dev environment.
 """
 import cv2
 import numpy as np
@@ -46,7 +52,7 @@ def main():
             f"  id {d['id']} | conf {d['confidence']} | prob {d['mean_prob']:.3f} "
             f"| lat {d['lat']:.6f} lon {d['lon']:.6f} | bbox {d['bbox_xyxy']}"
         )
-    save_report(geo, r"D:\SIH\pipeline\demo_out\xtf_hazard_report")
+    save_report(geo, "demo_out/xtf_walkthrough_report")  # output dir must exist
     print("report saved -> demo_out/xtf_hazard_report.json + .csv")
 
     target_lat = 45.0000 + 65 * 1e-5
