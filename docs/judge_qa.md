@@ -3,6 +3,8 @@
 **Prepared:** 2026-09-17  
 **Status:** Evidence-backed answers only. Gaps are stated explicitly.
 
+**Named finding (cross-reference):** Four independent stress tests (Q1 cross-domain check, Q13 heave/pitch/roll robustness, Q6 in-domain GT-negative FP rate, and the synthetic net-patch exploration in Q5) converge on a single characterised failure mode: the model fires on unfamiliar or ambiguous texture rather than reliably discriminating target shape. This is documented as a named limitation in `README.md` §Known Limitations item 7, and is the single most important characterised limitation of the current system.
+
 ---
 
 ## Q1. How does the system handle domain shift — different sonar hardware, different waters, different survey geometries?
