@@ -9,7 +9,7 @@
 
 **Short answer:** It does not generalise across SSS domains, and we measured this directly.
 
-**Detail:** The model was trained exclusively on towfish-collected side-scan sonar imagery from Thunder Bay National Marine Sanctuary (freshwater Great Lakes, ~132 kHz, surface-towed platform). We ran a deliberate cross-domain check on a second real, independently collected SSS dataset (Santos et al. 2024, AUV-mounted dual-frequency 900–1800 kHz, coastal marine):
+**Detail:** The model was trained exclusively on AUV-collected side-scan sonar imagery from Thunder Bay National Marine Sanctuary (freshwater Great Lakes, ~132 kHz, Iver3 AUV / EdgeTech 2205). We ran a deliberate cross-domain check on a second real, independently collected SSS dataset (Santos et al. 2024, AUV-mounted dual-frequency 900–1800 kHz, coastal marine):
 
 | Class | GT objects | Mean IoU-of-boxes | Det@0.5 |
 |-------|-----------|-------------------|---------|
@@ -18,7 +18,7 @@
 
 False-positive rate on 866 background frames: **28.5%**
 
-The model fires near-randomly on unfamiliar sonar texture. Contributing factors: frequency mismatch (7–14× difference), fundamentally different shadow geometry (towfish vs. AUV altitude and grazing angle), structurally dissimilar targets (large debris fields vs. compact objects), and different water acoustic properties.
+The model fires near-randomly on unfamiliar sonar texture. Contributing factors: frequency mismatch (7–14× difference, ~132 kHz vs 900–1800 kHz), different shadow geometry (altitude and grazing angle), structurally dissimilar targets (large debris fields vs. compact objects), and different water acoustic properties (freshwater Great Lakes vs. coastal marine).
 
 This is an expected and informative result, not a failure to apologise for. It directly supports the framing we have maintained throughout: learned features are domain-specific, and generalisation across SSS hardware requires domain adaptation or retraining. Full results: `pipeline/crossdomain_results.json`.
 
@@ -103,7 +103,7 @@ Full results: `pipeline/benchmark_results.json`.
 | Class | Status | Reason |
 |-------|--------|--------|
 | Shipwrecks | **Shipped** | AI4Shipwrecks dataset (286 images, 28 sites, CC-BY-4.0); test IoU 0.43 |
-| Submerged pipes / cylinders | **Not achievable** | SubPipe dataset: GPL-3.0 license incompatible with public submission; additionally same AUV-vs-towfish domain mismatch as Santos 2024; bounding-box-only sonar annotations (no segmentation masks). See `docs/subpipe_gonogo.md`. |
+| Submerged pipes / cylinders | **Not achievable** | SubPipe dataset: GPL-3.0 license incompatible with public submission. Sonar hardware and frequency unconfirmed; bounding-box-only sonar annotations (no segmentation masks). See `docs/subpipe_gonogo.md`. |
 | Ghost nets / entangled fishing gear | **Not achievable** | No public labelled sonar dataset exists anywhere; this is a field-wide data gap, not a limitation specific to this approach. Documented in `docs/phase1_5_class_expansion_feasibility.md`. |
 | Generic cylinders / UXO | **Not achievable** | No real-data validation path; synthetic-only training would produce an unvalidated capability claim. Not shipped. |
 

@@ -5,8 +5,9 @@ CC-BY-4.0, highly likely). Compares predicted bounding boxes (derived from mask
 connected components) against ground-truth YOLO bounding boxes using IoU-of-boxes.
 
 This is NOT a mine-detection evaluation. It measures whether features learned on
-towfish-collected shipwreck imagery transfer at all to AUV-collected sonar imagery
-containing annotated man-made objects in a different sensor domain.
+AUV-collected (Iver3 + EdgeTech 2205, ~132 kHz) shipwreck imagery transfer at all
+to AUV-collected sonar imagery containing annotated man-made objects in a different
+sensor domain.
 
 Results are reported per class (MILCO / NOMBO) and for background (no-annotation)
 frames separately. Do NOT compare the bbox-IoU numbers against our pixel-level test
@@ -114,7 +115,7 @@ def run():
             all_pairs.append((jpg, txt))
 
     print(f"Found {len(all_pairs)} image/annotation pairs across {YEAR_DIRS}")
-    print("Model: shipwreck U-Net (towfish-trained). Domain: AUV SSS (different sensor).")
+    print("Model: shipwreck U-Net (AI4Shipwrecks, Iver3 AUV / EdgeTech 2205, ~132 kHz). Domain: AUV SSS (different sensor).")
     print("Metric: IoU-of-boxes (NOT pixel IoU). Do not compare to test IoU 0.427.")
     print()
 
@@ -189,7 +190,7 @@ def run():
     # Compute stats
     results = {
         "framing": "cross-domain generalization check (non-mine anomalous-object subset)",
-        "model": "shipwreck U-Net (AI4Shipwrecks, towfish SSS, CC-BY-4.0)",
+        "model": "shipwreck U-Net (AI4Shipwrecks, Iver3 AUV + EdgeTech 2205 ~132 kHz, CC-BY-4.0)",
         "eval_dataset": "Santos et al. 2024, 24574879, AUV SSS, license: highly likely CC-BY-4.0 (not independently confirmed at repo level)",
         "metric": "IoU-of-boxes (bbox derived from mask connected components vs YOLO GT bbox)",
         "note_do_not_compare": "These numbers are NOT comparable to pixel-level test IoU 0.427 (different metric, different domain)",

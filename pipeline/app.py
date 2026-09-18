@@ -92,7 +92,7 @@ else:
 with st.expander("About this model — scope, limitations & performance", expanded=False):
     st.markdown("""
 **Detection scope:** Shipwrecks only. Trained on the AI4Shipwrecks dataset (Thunder Bay NMS,
-28 sites, towfish side-scan sonar). Pipes, cylinders, and ghost nets are **not detected** —
+28 sites, Iver3 AUV + EdgeTech 2205 side-scan sonar). Pipes, cylinders, and ghost nets are **not detected** —
 no annotated sonar training data exists for those classes.
 
 **Performance (test set, held-out sites never seen during training):**

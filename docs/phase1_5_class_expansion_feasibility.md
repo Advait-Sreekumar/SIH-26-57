@@ -12,7 +12,7 @@ clear explanation of what would be needed.
 
 | Class | Verdict | Confidence |
 |-------|---------|------------|
-| Underwater pipelines / cylindrical infrastructure | **Not achievable in available time** (SubPipe: GPL-3.0 blocks use + AUV vs towfish domain mismatch) | High |
+| Underwater pipelines / cylindrical infrastructure | **Not achievable in available time** (SubPipe: GPL-3.0 blocks use; sonar hardware/frequency unconfirmed) | High |
 | Ghost/entangled fishing nets | **Not yet achievable** (no public labeled sonar dataset exists anywhere) | High |
 | Generic cylindrical seabed debris | **Synthetic-only / unproven** (no real-data validation path) | High |
 
@@ -40,21 +40,23 @@ GPL-licensing the entire submission.
 ### Domain shift — additional blocking concern
 
 SubPipe was collected by an AUV (Oceanscan-MST LAUV) with a side-mounted SSS.
-AI4Shipwrecks uses surface-towed towfish SSS. These differ in:
-- Grazing angle (steep AUV-mounted vs shallow towfish)
-- Swath width and altitude
-- Seafloor illumination geometry and shadow geometry
+AI4Shipwrecks is also AUV-mounted (Iver3 + EdgeTech 2205, ~132 kHz, Thunder Bay).
+Platform type does not distinguish them — but sonar hardware and frequency differ:
+- SubPipe's sensor is unspecified in the README/abstract; frequency incompatible
+- Different shadow geometry even between AUV surveys if altitude/range differ
 
-This is the same class of domain mismatch that invalidated SCTD cross-domain eval.
+The license incompatibility is a hard blocker regardless of geometry.
 
 ### Verdict: NOT ACHIEVABLE IN AVAILABLE TIME
 
-Two independent blocking criteria: license incompatibility and domain shift.
-See docs/subpipe_gonogo.md for the full go/no-go analysis.
+Two independent blocking criteria: license incompatibility and unconfirmed sonar
+hardware/frequency compatibility. See docs/subpipe_gonogo.md for the full go/no-go
+analysis.
 
-**What would be needed:** License-compatible, towfish-survey SSS pipeline data
-with segmentation annotations (not bounding boxes). Time to working model if
-data existed: 1–2 weeks.
+**What would be needed:** License-compatible SSS pipeline data with segmentation
+annotations (not bounding boxes), collected with compatible sonar hardware (matching
+AI4Shipwrecks frequency range ~132 kHz or retraining from scratch). Time to working
+model if data existed: 1–2 weeks.
 
 ---
 

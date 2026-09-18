@@ -1,6 +1,6 @@
 {
   "framing": "cross-domain generalization check (non-mine anomalous-object subset)",
-  "model": "shipwreck U-Net (AI4Shipwrecks, towfish SSS, CC-BY-4.0)",
+  "model": "shipwreck U-Net (AI4Shipwrecks, Iver3 AUV + EdgeTech 2205 ~132 kHz, CC-BY-4.0)",
   "eval_dataset": "Santos et al. 2024, 24574879, AUV SSS, license: highly likely CC-BY-4.0 (not independently confirmed at repo level)",
   "metric": "IoU-of-boxes (bbox derived from mask connected components vs YOLO GT bbox)",
   "note_do_not_compare": "These numbers are NOT comparable to pixel-level test IoU 0.427 (different metric, different domain)",

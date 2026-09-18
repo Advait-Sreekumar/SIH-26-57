@@ -38,11 +38,12 @@ we cannot comply with for a public submission.
   the current shipwreck segmentation model.
 - **Sonar hardware and frequency:** Not documented in README or arXiv abstract.
   Cannot confirm compatibility with AI4Shipwrecks SSS characteristics.
-- **Collection geometry mismatch:** SubPipe is AUV-mounted SSS (side-looking from
-  an underwater vehicle). AI4Shipwrecks is surface-towed towfish SSS. Fundamentally
-  different grazing angle, swath width, altitude, and seafloor illumination geometry.
-  This is the same class of domain mismatch that invalidated the SCTD cross-domain
-  evaluation (Finding #2 in phase0_gap_analysis.md).
+- **Collection geometry mismatch:** SubPipe is AUV-mounted SSS. AI4Shipwrecks is also
+  AUV-mounted (Iver3 + EdgeTech 2205, ~132 kHz, Thunder Bay). Platform type does not
+  distinguish them — but sonar hardware and frequency are different: SubPipe's sensor
+  is unspecified in the README/abstract; the frequency and shadow geometry of the two
+  AUV surveys would still require re-validation before cross-training. More importantly,
+  the GPL-3.0 license is a hard blocker regardless of geometry compatibility.
 - **Single object class:** Only pipeline annotations — no diversity that would help
   generalise to seabed hazard detection broadly.
 
@@ -55,14 +56,14 @@ available time with publicly available, license-compatible SSS data.
 
 This joins ghost nets and generic cylinders as a future-work item:
 - No license-compatible annotated SSS pipeline dataset exists
-- Domain shift from AUV-mounted to towfish SSS would require hardware-specific
-  preprocessing changes even if data were available
+- Sonar hardware and frequency of potential datasets would need verification against
+  AI4Shipwrecks (Iver3/EdgeTech 2205, ~132 kHz) before cross-training
 - Bounding-box-only supervision on the SSS channel would produce lower-fidelity
   output, requiring clear labelling as such
 
 **What would be needed to achieve pipe detection:**
-1. Obtain or collect SSS pipeline data with segmentation annotations from a towfish
-   survey (matching AI4Shipwrecks collection geometry)
+1. Obtain or collect SSS pipeline data with segmentation annotations from a survey
+   using compatible sonar hardware (matching AI4Shipwrecks frequency range ~132 kHz)
 2. Confirm license compatibility for model training and public submission
 3. Train, evaluate on a held-out split, report IoU/Dice
 4. Only then: add as a clearly-labelled second detection head

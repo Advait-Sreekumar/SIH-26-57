@@ -17,7 +17,7 @@ are consistent with `docs/evaluation_report.md`.
 
 Typical of best-case model behaviour on large, high-contrast debris fields.
 
-- **Setting:** Shallow-water wreck site; towfish at nominal altitude; minimal layover.
+- **Setting:** Shallow-water wreck site; Iver3 AUV at nominal altitude; minimal layover.
 - **Ground truth:** Irregular mask covering a scatter of anchor chain and structural debris.
   Bounding box roughly 180×90 px on the 512×512 tile.
 - **Model output:** Mask closely follows the bright-reflection footprint. Mean sigmoid

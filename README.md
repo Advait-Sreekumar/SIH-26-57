@@ -27,8 +27,8 @@ dataset (Thunder Bay National Marine Sanctuary shipwreck surveys).
 Detection of pipes, cylinders, and ghost/entangled nets is **not achievable in the
 current version** — investigated and closed for this submission:
 - **Pipes/cylinders (SubPipe):** dataset found, but GPL-3.0 license blocks use in a
-  public submission; additionally, AUV-mounted vs towfish SSS collection geometry
-  creates the same domain mismatch that invalidated SCTD (see `docs/subpipe_gonogo.md`)
+  public submission; sonar hardware/frequency unconfirmed; bounding-box-only SSS
+  annotations (no segmentation masks). See `docs/subpipe_gonogo.md`.
 - **Ghost nets:** no public labeled sonar dataset exists anywhere; this is a
   field-wide data gap, not a limitation specific to this approach
 - **Generic cylinders:** no real-data validation path; synthetic-only training would
@@ -151,4 +151,4 @@ slower on this CPU and has a numerical accuracy penalty (see evaluation report S
 
    † INT8 max diff vs FP32 = 0.6497 WARN — use FP32 for inference. INT8 is **slower** on this CPU (dynamic quant overhead outweighs smaller model). ONNX sizes: FP32 97.7 MB, INT8 24.6 MB. Times cover preprocess+tile_inference; exclude file I/O and report write. Full results in `pipeline/benchmark_results.json`.
 5. Human-in-the-loop review workflow implemented (Phase 5): per-detection confirm/reject/uncertain/annotate, SQLite persistence, generic category system
-6. Cross-domain generalisation: shipwreck model evaluated on Santos et al. 2024 AUV SSS dataset (1,170 images, "cross-domain generalization check (non-mine anomalous-object subset)"). MILCO Det@0.5 0.0%, NOMBO Det@0.5 2.2%, FP rate on background 28.5%. Model does not transfer across SSS sensor domains (towfish vs AUV, frequency mismatch). See `pipeline/crossdomain_results.json`.
+6. Cross-domain generalisation: shipwreck model evaluated on Santos et al. 2024 AUV SSS dataset (1,170 images, "cross-domain generalization check (non-mine anomalous-object subset)"). MILCO Det@0.5 0.0%, NOMBO Det@0.5 2.2%, FP rate on background 28.5%. Model does not transfer across SSS sensor domains (frequency mismatch ~132 kHz vs 900-1800 kHz, different survey geometry). See `pipeline/crossdomain_results.json`.

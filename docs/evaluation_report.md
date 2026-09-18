@@ -73,9 +73,9 @@ Eval dataset: Santos et al. 2024, AUV SSS, 1,170 images (license: highly likely 
 False positive rate on 866 background frames: **28.5%** (247/866 frames with at least one prediction; 662 total false-positive boxes).
 
 **Finding:** Shipwreck-trained features do not transfer to the AUV SSS domain. Contributing factors:
-- Frequency mismatch: 132 kHz towfish vs. 900–1800 kHz AUV (7–14× difference)
+- Frequency mismatch: 132 kHz (AI4Shipwrecks Iver3 AUV / EdgeTech 2205) vs. 900–1800 kHz AUV (7–14× difference)
 - Structurally dissimilar targets: large irregular debris fields vs. compact cylindrical objects
-- Different shadow-to-target geometry (towfish grazing angle vs. AUV altitude)
+- Different shadow-to-target geometry (AI4Shipwrecks ~2-5 m AUV altitude vs. Santos 2024 AUV survey geometry)
 - Water type: Great Lakes freshwater vs. coastal marine acoustic propagation
 
 This result is expected and informative. It characterises the domain specificity of the learned features. Full data: `pipeline/crossdomain_results.json`.
