@@ -90,6 +90,46 @@ export SONAR_CKPT=/path/to/best_model_v1_iou0.71.pth
 export SONAR_TEST_IMAGES=/path/to/test/images
 ```
 
+### Pre-flight checklist
+
+| Check | How to verify |
+|-------|---------------|
+| Python >= 3.9 | `python --version` |
+| Checkpoint present | `ls AI4Shipwrecks/AI4Shipwrecks/runs/best_model_v1_iou0.71.pth` |
+| Requirements installed | `pip install -r requirements.txt` |
+| Test images available | Set `SONAR_TEST_IMAGES` or place images in `AI4Shipwrecks/AI4Shipwrecks/test/` |
+
+The checkpoint is not committed (`.gitignore` excludes `*.pth`). Restore it from your local
+training run or set `SONAR_CKPT` to point to an absolute path.
+
+### Expected output
+
+After uploading a sonar image:
+
+1. **Overlay panel** — input image with detection bounding boxes and mask outlines.
+2. **Detection table** — detection ID, bounding box, mean sigmoid probability,
+   sonar-heuristic confidence score (0-100, uncalibrated), GPS coordinates.
+3. **Review panel** — per-detection confirm / reject / uncertain actions that persist
+   to `pipeline/review_store.db` across restarts.
+4. **Download links** — `hazard_report.json` and `hazard_report.csv` with
+   `review_status` (`unreviewed` | `human-confirmed` | `human-rejected`) per detection.
+
+Typical detection count on a clean 512x512 sonar tile: 3-5 detections (baseline mean 3.4
+det/image; robustness harness baseline, `docs/evaluation_report.md` Section 6).
+
+Latency: ~3 s/image ONNX FP32 CPU; ~0.37 s/image PyTorch GPU. Do not use INT8 -- it is
+slower on this CPU and has a numerical accuracy penalty (see evaluation report Section 2).
+
+### Failure modes
+
+| Symptom | Likely cause | Action |
+|---------|-------------|--------|
+| `FileNotFoundError: best_model_v1_iou0.71.pth` | Checkpoint not present | Restore from training or set `SONAR_CKPT` |
+| Zero detections on a target-rich image | Threshold too high or wrong format | Verify 8-bit grayscale input; check `SonarDetector.threshold` |
+| 10+ detections on a flat background frame | Platform motion artefact (heave shear) | Review manually; see `docs/qualitative_examples.md` FP-1 |
+| Score near 35 flips between runs | Near-threshold instability | Genuinely uncertain case; see `docs/qualitative_examples.md` HARD-2 |
+| `onnxruntime` import error | Missing dependency | `pip install onnxruntime` |
+
 ## Dataset
 
 - **AI4Shipwrecks** (NOAA / Thunder Bay National Marine Sanctuary)
