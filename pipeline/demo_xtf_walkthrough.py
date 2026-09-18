@@ -1,3 +1,9 @@
+"""Manual walkthrough demo -- NOT collected by pytest. Requires a real XTF file at the
+hardcoded path below. Run directly:  python pipeline/demo_xtf_walkthrough.py
+
+This is not test coverage. See pipeline/test_pipeline.py and pipeline/test_review_store.py
+for the actual pytest suite. The XTF path must be updated for your local environment.
+"""
 import cv2
 import numpy as np
 
