@@ -106,14 +106,28 @@ python pipeline/synthetic_net_exploration.py
 
 Whether the shipwreck-trained model fires at all on synthetic net-like patches, and at what
 rate. This is a measure of model non-selectivity on out-of-distribution input -- the same
-behaviour characterised in the Santos 2024 cross-domain check, where FP rate on background
-frames was 28.5% even without any target-like structure.
+behaviour characterised in two prior results:
+
+- **Cross-domain check (Santos 2024):** FP rate on background frames was 28.5% even without
+  any target-like structure -- the model fires indiscriminately on unfamiliar sonar texture.
+- **Heave/pitch/roll robustness result (Q13):** Platform motion shear increased false-positive
+  count by +196% (3.4 → 10.1 mean detections) -- bright edge artefacts from an unfamiliar
+  acquisition geometry trigger the same indiscriminate firing behaviour.
+
+Both results, and this experiment, are consistent with the same underlying property: the model
+fires on any sufficiently "target-like" low-level texture, not specifically on shipwreck
+structure. The 86.7% activation rate on synthetic net patches does not mean "86.7% net-detection
+accuracy" and does not imply the model has learned anything about real net acoustic signatures.
+A high hit-rate on synthetic shapes could equally reflect indiscriminate firing on unfamiliar
+high-contrast texture -- the same failure mode already documented in both results above.
 
 The synthetic net patches contain elongated low-backscatter structures with reduced shadow
 fringes. These share some local texture statistics with shipwreck debris fields (irregular
 boundaries, attenuated regions, partial acoustic shadows). Any model activations on net
 patches likely reflect shared low-level texture cues, not learned understanding of net
-structure.
+structure. Overlay analysis of detection blobs confirms that activated regions are broad
+(3--11% of patch area) and spatially coincident with the strand region primarily because
+strands span most of the patch width -- not because the model traced strand geometry.
 
 ### What it does NOT show
 
