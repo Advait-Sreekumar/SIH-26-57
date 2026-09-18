@@ -1,0 +1,261 @@
+{
+  "framing": "illustrative, unvalidated, synthetic-only exploration -- not a demonstrated capability",
+  "model": "shipwreck U-Net (AI4Shipwrecks, Iver3 AUV + EdgeTech 2205 ~132 kHz) -- not retrained, not fine-tuned",
+  "n_patches": 30,
+  "rng_seed": 7,
+  "patches_with_detections": 26,
+  "detection_rate": 0.8667,
+  "total_detections": 72,
+  "mean_detections_per_patch": 2.4,
+  "per_patch": [
+    {
+      "patch_id": 0,
+      "n_detections": 3,
+      "model_prob_scores": [
+        0.8648,
+        0.9043,
+        0.609
+      ]
+    },
+    {
+      "patch_id": 1,
+      "n_detections": 3,
+      "model_prob_scores": [
+        0.7735,
+        0.7661,
+        0.9331
+      ]
+    },
+    {
+      "patch_id": 2,
+      "n_detections": 0,
+      "model_prob_scores": []
+    },
+    {
+      "patch_id": 3,
+      "n_detections": 2,
+      "model_prob_scores": [
+        0.9369,
+        0.7049
+      ]
+    },
+    {
+      "patch_id": 4,
+      "n_detections": 0,
+      "model_prob_scores": []
+    },
+    {
+      "patch_id": 5,
+      "n_detections": 2,
+      "model_prob_scores": [
+        0.7793,
+        0.9326
+      ]
+    },
+    {
+      "patch_id": 6,
+      "n_detections": 1,
+      "model_prob_scores": [
+        0.8981
+      ]
+    },
+    {
+      "patch_id": 7,
+      "n_detections": 0,
+      "model_prob_scores": []
+    },
+    {
+      "patch_id": 8,
+      "n_detections": 5,
+      "model_prob_scores": [
+        0.7896,
+        0.7375,
+        0.852,
+        0.8257,
+        0.8863
+      ]
+    },
+    {
+      "patch_id": 9,
+      "n_detections": 5,
+      "model_prob_scores": [
+        0.6669,
+        0.9523,
+        0.8395,
+        0.7099,
+        0.7997
+      ]
+    },
+    {
+      "patch_id": 10,
+      "n_detections": 5,
+      "model_prob_scores": [
+        0.7251,
+        0.7383,
+        0.6867,
+        0.7537,
+        0.9317
+      ]
+    },
+    {
+      "patch_id": 11,
+      "n_detections": 2,
+      "model_prob_scores": [
+        0.747,
+        0.9565
+      ]
+    },
+    {
+      "patch_id": 12,
+      "n_detections": 1,
+      "model_prob_scores": [
+        0.7205
+      ]
+    },
+    {
+      "patch_id": 13,
+      "n_detections": 1,
+      "model_prob_scores": [
+        0.9309
+      ]
+    },
+    {
+      "patch_id": 14,
+      "n_detections": 3,
+      "model_prob_scores": [
+        0.9201,
+        0.8203,
+        0.8511
+      ]
+    },
+    {
+      "patch_id": 15,
+      "n_detections": 4,
+      "model_prob_scores": [
+        0.7258,
+        0.8766,
+        0.8778,
+        0.7079
+      ]
+    },
+    {
+      "patch_id": 16,
+      "n_detections": 3,
+      "model_prob_scores": [
+        0.7703,
+        0.8244,
+        0.7745
+      ]
+    },
+    {
+      "patch_id": 17,
+      "n_detections": 4,
+      "model_prob_scores": [
+        0.791,
+        0.7291,
+        0.7102,
+        0.9414
+      ]
+    },
+    {
+      "patch_id": 18,
+      "n_detections": 4,
+      "model_prob_scores": [
+        0.9145,
+        0.615,
+        0.6945,
+        0.698
+      ]
+    },
+    {
+      "patch_id": 19,
+      "n_detections": 2,
+      "model_prob_scores": [
+        0.9538,
+        0.6599
+      ]
+    },
+    {
+      "patch_id": 20,
+      "n_detections": 1,
+      "model_prob_scores": [
+        0.9506
+      ]
+    },
+    {
+      "patch_id": 21,
+      "n_detections": 1,
+      "model_prob_scores": [
+        0.9227
+      ]
+    },
+    {
+      "patch_id": 22,
+      "n_detections": 6,
+      "model_prob_scores": [
+        0.8383,
+        0.7429,
+        0.6997,
+        0.815,
+        0.7651,
+        0.7602
+      ]
+    },
+    {
+      "patch_id": 23,
+      "n_detections": 2,
+      "model_prob_scores": [
+        0.7292,
+        0.9006
+      ]
+    },
+    {
+      "patch_id": 24,
+      "n_detections": 1,
+      "model_prob_scores": [
+        0.8914
+      ]
+    },
+    {
+      "patch_id": 25,
+      "n_detections": 0,
+      "model_prob_scores": []
+    },
+    {
+      "patch_id": 26,
+      "n_detections": 1,
+      "model_prob_scores": [
+        0.8643
+      ]
+    },
+    {
+      "patch_id": 27,
+      "n_detections": 4,
+      "model_prob_scores": [
+        0.6698,
+        0.6922,
+        0.8845,
+        0.763
+      ]
+    },
+    {
+      "patch_id": 28,
+      "n_detections": 5,
+      "model_prob_scores": [
+        0.7464,
+        0.9382,
+        0.8791,
+        0.805,
+        0.719
+      ]
+    },
+    {
+      "patch_id": 29,
+      "n_detections": 1,
+      "model_prob_scores": [
+        0.9399
+      ]
+    }
+  ],
+  "interpretation": "Detection rate measures how often the shipwreck model fires on synthetic shapes. High rate = model not selective (expected on out-of-distribution input). Low rate = model does not generalise. Neither validates ghost-net detection."
+}

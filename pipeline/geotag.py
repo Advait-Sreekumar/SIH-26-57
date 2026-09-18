@@ -100,6 +100,7 @@ def save_report(detections, out_base, run_id=None, reviews=None):
         records.append(
             {
                 "id": det_id,
+                "object_class": d.get("object_class", "shipwreck"),
                 "lat": d.get("lat"),
                 "lon": d.get("lon"),
                 "bbox_xyxy": d["bbox_xyxy"],
