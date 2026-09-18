@@ -1,0 +1,336 @@
+{
+  "framing": "in-domain FP rate on GT-negative test frames (no ground-truth annotation)",
+  "n_gt_negative_frames": 46,
+  "n_frames_with_any_detection": 24,
+  "fp_rate": 0.5217,
+  "mean_detections_per_neg_frame": 1.565,
+  "note": "GT-negative means the label mask is all-zero. These frames may contain non-wreck seafloor, shadow, or rock features. Any detection on these frames is a false positive at the frame level.",
+  "per_frame": [
+    {
+      "stem": "Artificial_Reef_01",
+      "n_detections": 2,
+      "scores": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Artificial_Reef_02",
+      "n_detections": 3,
+      "scores": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Artificial_Reef_03",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Artificial_Reef_04",
+      "n_detections": 2,
+      "scores": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Artificial_Reef_05",
+      "n_detections": 1,
+      "scores": [
+        0.0
+      ]
+    },
+    {
+      "stem": "Barge_No_1_01",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Barge_No_1_07",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Barge_No_1_08",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Barge_No_1_09",
+      "n_detections": 1,
+      "scores": [
+        0.0
+      ]
+    },
+    {
+      "stem": "Barge_No_1_10",
+      "n_detections": 3,
+      "scores": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Barge_No_1_11",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Barge_No_1_12",
+      "n_detections": 3,
+      "scores": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Barge_No_1_13",
+      "n_detections": 3,
+      "scores": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Corsair_01",
+      "n_detections": 1,
+      "scores": [
+        0.0
+      ]
+    },
+    {
+      "stem": "Corsair_04",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Corsican_01",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Corsican_04",
+      "n_detections": 1,
+      "scores": [
+        0.0
+      ]
+    },
+    {
+      "stem": "Haltiner_Barge_08",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Haltiner_Barge_09",
+      "n_detections": 2,
+      "scores": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Haltiner_Barge_10",
+      "n_detections": 1,
+      "scores": [
+        0.0
+      ]
+    },
+    {
+      "stem": "Haltiner_Barge_11",
+      "n_detections": 2,
+      "scores": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Haltiner_Barge_12",
+      "n_detections": 3,
+      "scores": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Haltiner_Barge_13",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Lucinda_van_Valkenburg_01",
+      "n_detections": 2,
+      "scores": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Lucinda_van_Valkenburg_02",
+      "n_detections": 1,
+      "scores": [
+        0.0
+      ]
+    },
+    {
+      "stem": "Lucinda_van_Valkenburg_03",
+      "n_detections": 2,
+      "scores": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Lucinda_van_Valkenburg_04",
+      "n_detections": 2,
+      "scores": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Lucinda_van_Valkenburg_08",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Lucinda_van_Valkenburg_09",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Lucinda_van_Valkenburg_10",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Lucinda_van_Valkenburg_11",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Monohansett_01",
+      "n_detections": 28,
+      "scores": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "Shamrock_04",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Shamrock_05",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Shamrock_06",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "Viator_03",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "WH_Gilbert_03",
+      "n_detections": 1,
+      "scores": [
+        0.0
+      ]
+    },
+    {
+      "stem": "WP_Thew_01",
+      "n_detections": 4,
+      "scores": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "WP_Thew_02",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "WP_Thew_03",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "WP_Thew_06",
+      "n_detections": 2,
+      "scores": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "stem": "WP_Thew_07",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "WP_Thew_08",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "WP_Thew_12",
+      "n_detections": 1,
+      "scores": [
+        0.0
+      ]
+    },
+    {
+      "stem": "WP_Thew_13",
+      "n_detections": 0,
+      "scores": []
+    },
+    {
+      "stem": "WP_Thew_14",
+      "n_detections": 1,
+      "scores": [
+        0.0
+      ]
+    }
+  ]
+}

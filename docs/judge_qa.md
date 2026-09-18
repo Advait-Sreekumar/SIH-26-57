@@ -117,14 +117,15 @@ A separate internal observation (illustrative, unvalidated, synthetic-only explo
 
 ## Q6. How does the system handle false positives? What is the false-positive rate?
 
-**Short answer:** The system flags probable false positives heuristically (score < 35 = `likely_rock_or_shadow`) and provides human review. A measured FP rate on held-out test data has not been computed on the shipwreck domain specifically — this is a known gap.
+**Short answer:** The system flags probable false positives heuristically (score < 35 = `likely_rock_or_shadow`) and provides human review. We have now measured the in-domain frame-level FP rate on GT-negative test frames.
 
 **What we have measured:**
-- Cross-domain FP rate (AUV SSS background frames): 247/866 = **28.5%** — but this measures the model's behaviour on completely unfamiliar sonar texture, not its in-domain FP rate.
+- **In-domain FP rate (GT-negative test frames):** 24/46 frames with no ground-truth annotation fired at least one detection = **52.2%** frame-level FP rate; mean 1.57 detections per negative frame. One outlier frame (Monohansett_01, 9004×1728 px) produced 28 detections due to its size driving a large tile count; excluding it, the remaining 45 frames yield 22.4% and mean 0.87 det/frame. Full data: `pipeline/fp_rate_results.json`.
+- **Cross-domain FP rate (AUV SSS background frames):** 247/866 = **28.5%** — but this measures the model's behaviour on completely unfamiliar sonar texture, not its in-domain FP rate.
 - The `likely_rock_or_shadow` flag at score < 35 is set by inspection on a small sample, not by optimising a threshold on a labelled FP set.
 - Pixel-level test IoU 0.427 / Dice 0.598 is the primary accuracy metric, but it measures segmentation quality on known wreck sites, not false-alarm rate on non-wreck regions.
 
-**What we have not measured:** A per-frame detection-level false-positive rate on the held-out test set (i.e., how often the model fires on a frame with no annotated wreck). This requires detection-level (rather than pixel-level) ground truth labelling that was not in scope.
+**Interpretation caveats:** GT-negative here means the test-set label mask is all-zero. These 46 frames come from the 13 held-out wreck sites — they are boundary and adjacent frames around wreck positions, not guaranteed to be clean non-wreck seafloor. The model firing on these frames may reflect wreck debris spilling outside the annotated region, not purely background false alarms. The 52.2% figure is an upper bound on in-domain FP rate; the true FP rate on genuinely wreck-free seafloor cannot be determined from this dataset without additional non-wreck survey data.
 
 This is documented as a known limitation. The human review workflow (Q3) exists precisely to catch FPs before acting on a report.
 
