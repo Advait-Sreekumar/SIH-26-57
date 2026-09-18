@@ -111,6 +111,8 @@ Project constraint that has been maintained throughout: we will not claim detect
 
 The three closed classes are documented as a future-work roadmap in `docs/phase1_5_class_expansion_feasibility.md` with specific blockers and what would be required to resolve each.
 
+A separate internal observation (illustrative, unvalidated, synthetic-only exploration — not a demonstrated capability) applied the unmodified shipwreck model to 30 synthetic net-like sonar patches to characterise model selectivity on out-of-distribution input; 26/30 patches (86.7%) triggered detections, consistent with model non-selectivity on OOD input — see `docs/synthetic_net_exploration.md` for generation method, results, and interpretation.
+
 ---
 
 ## Q6. How does the system handle false positives? What is the false-positive rate?
