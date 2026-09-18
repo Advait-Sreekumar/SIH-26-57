@@ -83,18 +83,20 @@ Outputs saved as 8-bit greyscale PNG in `pipeline/net_exploration_visuals/`.
 
 Script: `pipeline/synthetic_net_exploration.py` | RNG seed 7 | 30 patches
 
-Results file: `pipeline/net_exploration_results.json` (written on first run, not committed to git).
+| Metric | Value |
+|--------|-------|
+| Patches generated | 30 |
+| Patches with >= 1 detection | 26 (86.7%) |
+| Total model detections | 72 |
+| Mean detections / patch | 2.40 |
+
+Full per-patch data: `pipeline/net_exploration_results.json`
 
 To reproduce:
 ```bash
 cd SIH
 python pipeline/synthetic_net_exploration.py
 ```
-
-Output fields: `patches_with_detections`, `detection_rate`, `total_detections`,
-`mean_detections_per_patch`, per-patch `n_detections` and `model_prob_scores`.
-
-**Note:** Interpretation is the same regardless of the exact numeric outcome -- see section below.
 
 ---
 
