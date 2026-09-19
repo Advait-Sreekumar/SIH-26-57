@@ -70,18 +70,28 @@ Test coverage: 7 tests in `pipeline/test_review_store.py` covering persistence a
 
 ## Q4. What is the inference latency? Is it deployable at the edge or in real time?
 
-**Short answer:** GPU-accelerated inference is 0.37 s/image (mean); CPU-only is 4.29 s/image. We do not claim real-time or edge readiness.
+**Short answer:** Two measured figures, different scopes — GPU pure forward pass: 0.37 s/image (mean); full pipeline call including preprocessing: 686 ms/image (mean warm). CPU-only pure forward pass: 4.29 s/image. We do not claim real-time or edge readiness.
 
-**Detail (10 real test images, 2476×1728 px, RTX 4050 Laptop GPU, Intel Core i7-12700H, CUDA 12.1):**
+Two benchmarks were run on the same hardware (RTX 4050 Laptop GPU, Intel Core i7-12700H, CUDA 12.1):
+
+**A. Pure GPU forward pass** (source: `pipeline/benchmark_results.json`):  
+Preprocessing done before the timer; timed window = tiled forward pass + sigmoid + mask + connected components. N=10 images, tile counts 8–32.
 
 | Backend | Mean | Min | Max | Std |
 |---------|------|-----|-----|-----|
 | PyTorch FP32 / CPU | 4.29 s | 1.53 s | 6.23 s | 1.75 s |
-| PyTorch FP32 / GPU (RTX 4050) | 0.37 s | 0.13 s | 0.54 s | 0.16 s |
+| **PyTorch FP32 / GPU (RTX 4050)** | **0.37 s** | 0.13 s | 0.54 s | 0.16 s |
 | ONNX FP32 / CPU | 3.08 s | 0.89 s | 5.27 s | 1.52 s |
 | ONNX INT8 / CPU | 5.26 s | 2.09 s | 7.06 s | — |
 
-Timings cover preprocess + tiled inference + sigmoid + mask + connected components. Excludes file I/O, geotagging, and report write.
+**B. Full `SonarDetector()` call including preprocessing** (source: `pipeline/perf_profile_results.json`):  
+Timer covers `preprocess()` (CPU histogram equalisation + normalisation) + tiled forward pass + sigmoid + `extract_detections()`. N=1 image (24 tiles), 3 warm runs.
+
+| Measurement | Value |
+|-------------|-------|
+| Warm inference mean | **686 ms** |
+
+The ~316 ms difference (686 ms − 370 ms) is preprocessing overhead on a ~4 MP image. Both figures are correct measurements of different scopes.
 
 Notes:
 - ONNX INT8 is *slower* than FP32 on this CPU — dynamic quantisation overhead outweighs the smaller model on this hardware. Do not use INT8 for inference; use FP32.
@@ -91,8 +101,6 @@ Notes:
 - These numbers are from a laptop GPU. A server-grade inference GPU would be faster; a Raspberry Pi or embedded system would be slower.
 
 **"Real-time" and "edge-ready" are not claimed** anywhere in the submission — those phrases require a specific measured number on the target deployment hardware.
-
-Full results: `pipeline/benchmark_results.json`.
 
 ---
 
@@ -140,7 +148,7 @@ This is documented as a known limitation. The human review workflow (Q3) exists 
 **Detail:**
 - The pipeline accepts JPEG/PNG images or XTF sonar log files via `xtf_io.py` (pyxtf, MIT license).
 - Large images are handled via tiled inference with ramp blending (`TileBlender` in `preprocess.py`) — the model never sees a raw image larger than 512×512; larger images are split into overlapping tiles and results are stitched.
-- A full survey log (thousands of pings, potentially gigabytes) has not been tested end-to-end. Memory usage and per-ping latency at survey scale (e.g., 10,000 pings at 0.37 s/image GPU = ~1 hour) have not been measured.
+- A full survey log (thousands of pings, potentially gigabytes) has not been tested end-to-end. Memory usage and per-ping latency at survey scale (e.g., 10,000 pings at 686 ms/image full pipeline = ~1.9 hours, or 370 ms/image pure GPU forward pass = ~1 hour) have not been measured.
 - No streaming or chunked processing is implemented — the current XTF reader loads the entire file into memory.
 
 **Not yet tested:** Multi-file batch processing, memory behaviour on large XTF files, or sustained throughput over a full survey transect. These are correct future-work items, not claimed capabilities.

@@ -37,7 +37,7 @@ JSON, CSV, and PDF.
 | Metric | Value | Source |
 |--------|-------|--------|
 | Test pixel IoU (held-out sites) | **0.4268** | `docs/evaluation_report.md` §3 |
-| GPU inference latency (RTX 4050) | **0.37 s/image** | `docs/evaluation_report.md` §4 |
+| GPU inference latency (RTX 4050) | **0.37 s** pure forward pass; **686 ms** full pipeline | `docs/evaluation_report.md` §2 |
 | Cross-domain Det@0.5 (MILCO class) | **0.0%** | `docs/evaluation_report.md` §6 |
 
 The cross-domain zero is not a failure to apologise for — it is an honest, measured
@@ -275,16 +275,37 @@ rounding. ONNX INT8 has a material accuracy penalty and must not be used for inf
 
 ### Inference Latency
 
-Measured on 10 real test images (2476×1728 px) on Intel Core i7-12700H with
-RTX 4050 Laptop GPU, CUDA 12.1. Timings cover preprocess + tiled inference +
-sigmoid + mask + connected components. Excludes file I/O, geotagging, report write.
+Two benchmarks measure different pipeline scopes on the same hardware
+(Intel Core i7-12700H, RTX 4050 Laptop GPU, CUDA 12.1).
+
+**A. Pure GPU forward pass** (source: `pipeline/benchmark_results.json`, script:
+`pipeline/benchmark_inference.py`):  
+Preprocessing was done *before* the timer using `preprocessed=True`; the timed
+window covers only tiled forward pass + sigmoid + mask blending + connected
+components. N=10 images (2476×1728 px), 2 warmup runs, tile counts 8–32 per image.
 
 | Backend | Mean | Min | Max | Std |
 |---------|------|-----|-----|-----|
 | PyTorch FP32 / CPU | 4.29 s | 1.53 s | 6.23 s | 1.75 s |
-| PyTorch FP32 / GPU (RTX 4050) | 0.37 s | 0.13 s | 0.54 s | 0.16 s |
+| **PyTorch FP32 / GPU (RTX 4050)** | **0.37 s** | 0.13 s | 0.54 s | 0.16 s |
 | ONNX FP32 / CPU | 3.08 s | 0.89 s | 5.27 s | 1.52 s |
 | ONNX INT8 / CPU | 5.26 s | 2.09 s | 7.06 s | — |
+
+**B. Full `SonarDetector()` call including preprocessing** (source:
+`pipeline/perf_profile_results.json`, script: `pipeline/perf_profile.py`):  
+Timer covers `preprocess()` (CPU: histogram equalisation + normalisation on a
+2476×1728 px image) + tiled forward pass + sigmoid + `extract_detections()`
+(morphological opening + connected components). N=1 image (Artificial_Reef_01.png,
+24 tiles), 3 warm runs.
+
+| Measurement | Value |
+|-------------|-------|
+| First (cold) inference | 891 ms |
+| **Warm inference mean (3 runs)** | **686 ms** |
+
+The ~316 ms difference between the two GPU figures (686 ms − 370 ms) is the
+preprocessing overhead: CPU-bound histogram equalisation and normalisation on a
+~4 MP image. Both figures are correct — they measure different scopes.
 
 Notes:
 - **ONNX INT8 is slower than FP32** on this hardware. Dynamic quantisation overhead
@@ -355,7 +376,7 @@ The bottleneck analysis supports staying on Streamlit:
 - Cold start (~8–9 s) is dominated by PyTorch import and model weight load — both
   framework-independent. A custom Flask/FastAPI server would face the same cost on
   first request.
-- Warm inference is already 0.37 s (GPU) / 3.08 s (CPU FP32), not a Streamlit
+- Warm inference is 686 ms full pipeline (370 ms pure GPU forward pass) / 3.08 s (CPU FP32), not a Streamlit
   overhead.
 - The human review loop (SQLite upsert → UI update) is near-instant; no queuing
   bottleneck exists.
@@ -681,7 +702,7 @@ results cited above.
 | Q1 | Domain shift / hardware generalisation | Measured directly: 0.0% Det@0.5 on MILCO; features do not transfer |
 | Q2 | Confidence score reliability | Uncalibrated heuristic composite; not a probability |
 | Q3 | Human review persistence | Yes — SQLite, persists across restarts, keyed to run_id |
-| Q4 | Inference latency; real-time / edge claim | 0.37 s GPU / 4.29 s CPU; real-time not claimed |
+| Q4 | Inference latency; real-time / edge claim | 0.37 s GPU pure forward pass / 686 ms full pipeline / 4.29 s CPU; real-time not claimed |
 | Q5 | What hazard classes can be detected | Shipwrecks only; pipes/nets/cylinders are documented non-deliverables |
 | Q5a | Ghost net synthetic exploration | 86.7% fire rate on synthetic patches; illustrative only, not capability |
 | Q6 | In-domain FP rate | 52.2% frame-level (24/46 GT-negative frames); 22.4% excluding Monohansett_01 outlier. Source: `pipeline/fp_rate_results.json` |

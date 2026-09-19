@@ -24,18 +24,32 @@ SOTA context: published sonar ATR benchmarks report Dice/IoU 0.55–0.77. Test I
 
 ## 2. Inference Latency Benchmark
 
-Hardware: Intel Core i7-12700H, NVIDIA RTX 4050 Laptop GPU, CUDA 12.1, PyTorch 2.5.1+cu121.  
-Images: 10 test images (2476×1728 px), seed=42. Tile counts per image: 8–32.
+Hardware: Intel Core i7-12700H, NVIDIA RTX 4050 Laptop GPU, CUDA 12.1, PyTorch 2.5.1+cu121.
 
-Timings cover: preprocess + tile inference + sigmoid + mask + connected components.  
-Excludes: file I/O, geotagging, report write.
+Two benchmarks measure different pipeline scopes:
+
+**A. Pure GPU forward pass** (source: `pipeline/benchmark_results.json`):  
+Preprocessing done before the timer (`preprocessed=True`); timed window covers tiled
+forward pass + sigmoid + mask + connected components only. N=10 images (2476×1728 px),
+seed=42, tile counts 8–32. Excludes: file I/O, geotagging, report write.
 
 | Backend | Mean | Std | Min | Max | Model size |
 |---------|------|-----|-----|-----|------------|
 | PyTorch FP32 / CPU | 4.29 s | 1.75 s | 1.53 s | 6.23 s | — |
-| PyTorch FP32 / GPU (RTX 4050) | 0.37 s | 0.16 s | 0.13 s | 0.54 s | — |
+| **PyTorch FP32 / GPU (RTX 4050)** | **0.37 s** | 0.16 s | 0.13 s | 0.54 s | — |
 | ONNX FP32 / CPU | 3.08 s | 1.52 s | 0.89 s | 5.27 s | 97.7 MB |
 | ONNX INT8 / CPU | 5.26 s | 1.84 s | 2.09 s | 7.06 s | 24.6 MB |
+
+**B. Full `SonarDetector()` call including preprocessing** (source: `pipeline/perf_profile_results.json`):  
+Timer covers `preprocess()` (CPU histogram equalisation + normalisation) + tiled
+forward pass + sigmoid + `extract_detections()`. N=1 image (24 tiles), 3 warm runs.
+
+| Measurement | Value |
+|-------------|-------|
+| Warm inference mean | **686 ms** |
+
+The ~316 ms gap (686 ms − 370 ms) is preprocessing overhead on a ~4 MP image.
+Both figures are correct — they measure different scopes.
 
 **Key findings:**
 - ONNX INT8 is *slower* than FP32 on this CPU — dynamic quantisation overhead outweighs the smaller model at this tile count and image size.
@@ -44,7 +58,7 @@ Excludes: file I/O, geotagging, report write.
 - ONNX GPU (CUDA EP) not benchmarked: `onnxruntime-gpu` not in `requirements.txt`.
 - ONNX FP32 numerical match vs. PyTorch: max diff 2.57e-05 (PASS).
 
-Real-time and edge-ready are **not claimed** — those labels require a measured number on the target deployment hardware. Full data: `pipeline/benchmark_results.json`.
+Real-time and edge-ready are **not claimed** — those labels require a measured number on the target deployment hardware.
 
 ---
 
