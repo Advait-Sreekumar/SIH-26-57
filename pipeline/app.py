@@ -7,6 +7,16 @@ from pathlib import Path
 import cv2
 import numpy as np
 import streamlit as st
+import streamlit_antd_components as sac
+
+try:
+    import folium
+    from streamlit_folium import st_folium
+    _FOLIUM_OK = True
+except ImportError:
+    _FOLIUM_OK = False
+    folium = None
+    st_folium = None
 
 from categories import load_categories
 from confidence import score_detections
@@ -15,8 +25,10 @@ from infer import SonarDetector
 from preprocess import preprocess
 from review_store import (
     delete_review,
+    delete_sample_run,
     get_reviews_for_run,
     init_db,
+    purge_old_sample_runs,
     register_run,
     upsert_review,
 )
@@ -26,29 +38,13 @@ from xtf_io import load_input, nav_to_meta, slant_range_correct
 
 def make_run_id(file_bytes: bytes, image_name: str) -> str:
     digest = hashlib.sha1(file_bytes).hexdigest()[:10]
-    ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
     stem = Path(image_name).stem[:20]
-    return f"{stem}_{ts}_{digest}"
+    return f"{stem}_{digest}"
 
 
 @st.cache_resource
 def get_db():
     return init_db()
-
-st.set_page_config(page_title="Sonar Hazard Detector", layout="wide")
-st.title("Sonar Hazard Detection & Reporting")
-st.caption(
-    "Shipwreck segmentation (U-Net/ResNet34 | val IoU 0.71 / test IoU 0.43) "
-    "+ heuristic confidence scoring (uncalibrated 0–100 score) "
-    "+ geotagged hazard reports"
-)
-
-_REPO_ROOT = Path(__file__).parent.parent
-DATA_IMG = _REPO_ROOT / "AI4Shipwrecks" / "AI4Shipwrecks" / "test" / "images"
-if not DATA_IMG.exists():
-    import os as _os
-    _env = _os.environ.get("SONAR_TEST_IMAGES")
-    DATA_IMG = Path(_env) if _env else DATA_IMG
 
 
 @st.cache_resource
@@ -56,81 +52,630 @@ def get_detector():
     return SonarDetector()
 
 
-input_mode = st.sidebar.radio("Input source", ["Image file", "XTF sonar log"])
+st.set_page_config(page_title="SonarEye", layout="wide", page_icon="\U0001f4e1")
 
-meta_from_file = None
-file_bytes = None
-name = None
-if input_mode == "Image file":
-    uploaded = st.sidebar.file_uploader("Upload sonar image", type=["png", "jpg", "jpeg"])
-    sample = st.sidebar.selectbox("...or pick a sample", [""] + sorted(p.name for p in DATA_IMG.glob("*.png")))
-    if uploaded:
-        file_bytes, name = uploaded.getvalue(), uploaded.name
-    elif sample:
-        file_bytes, name = (DATA_IMG / sample).read_bytes(), sample
-else:
-    uploaded = st.sidebar.file_uploader("Upload .xtf sonar log", type=["xtf"])
-    if uploaded:
-        file_bytes, name = uploaded.getvalue(), uploaded.name
+# ---- Global CSS: dark navy/teal scientific instrumentation theme ----
+st.markdown("""
+<style>
+:root {
+    --bg:       #0d1117;
+    --surface:  #161b22;
+    --border:   #21262d;
+    --primary:  #1d6fa4;
+    --teal:     #2ea8a0;
+    --text:     #e6edf3;
+    --muted:    #8b949e;
+    --green:    #3fb950;
+    --amber:    #d29922;
+    --red:      #f85149;
+    --accent:   #58a6ff;
+}
+html, body, [data-testid="stAppViewContainer"] {
+    background-color: var(--bg) !important;
+    color: var(--text) !important;
+}
+[data-testid="stSidebar"] {
+    background-color: var(--surface) !important;
+    border-right: 1px solid var(--border);
+}
+[data-testid="stSidebar"] * { color: var(--text) !important; }
+.stMarkdown, .stText, p, li, span, label { color: var(--text) !important; }
+h1, h2, h3, h4 { color: var(--text) !important; font-weight: 600 !important; }
+.stButton > button {
+    background-color: var(--primary) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 4px !important;
+    font-weight: 600 !important;
+    font-size: 0.85rem !important;
+}
+.stButton > button:hover {
+    background-color: var(--teal) !important;
+}
+[data-testid="metric-container"] {
+    background-color: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 6px !important;
+    padding: 10px 14px !important;
+}
+[data-testid="metric-container"] label { color: var(--muted) !important; font-size: 0.75rem !important; }
+[data-testid="metric-container"] [data-testid="stMetricValue"] { color: var(--text) !important; font-size: 1.5rem !important; }
+.stDataFrame { background-color: var(--surface) !important; }
+.stExpander { background-color: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: 6px !important; }
+hr { border-color: var(--border) !important; }
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.badge-confirmed  { background: #1a3a1a; color: #3fb950; border: 1px solid #3fb950; }
+.badge-rejected   { background: #3a1a1a; color: #f85149; border: 1px solid #f85149; }
+.badge-uncertain  { background: #3a2e0a; color: #d29922; border: 1px solid #d29922; }
+.badge-annotate   { background: #3a2e0a; color: #d29922; border: 1px solid #d29922; }
+.badge-unreviewed { background: #0d1a2a; color: #58a6ff; border: 1px solid #58a6ff; }
+.badge-ai         { background: #1a1a3a; color: #a78bfa; border: 1px solid #a78bfa; }
+.nav-section-header {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted) !important;
+    padding: 14px 4px 4px 4px;
+    margin: 0;
+}
+.stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+}
+.stat-card .label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.stat-card .value { font-size: 1.8rem; font-weight: 700; color: var(--text); line-height: 1.2; }
+.stat-card .sub   { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+.info-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--primary);
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin: 8px 0;
+    font-size: 0.85rem;
+    color: var(--muted) !important;
+}
+.warn-box {
+    background: #2a1f0a;
+    border: 1px solid var(--amber);
+    border-left: 3px solid var(--amber);
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin: 8px 0;
+    font-size: 0.85rem;
+    color: var(--amber) !important;
+}
+.pipeline-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    font-size: 0.85rem;
+    border-bottom: 1px solid var(--border);
+}
+.pipeline-step .dot-done    { width:10px; height:10px; border-radius:50%; background:var(--green); flex-shrink:0; }
+.pipeline-step .dot-running { width:10px; height:10px; border-radius:50%; background:var(--amber); flex-shrink:0; }
+.pipeline-step .dot-pending { width:10px; height:10px; border-radius:50%; background:var(--border); flex-shrink:0; }
+.pipeline-step .step-label  { color: var(--text); flex-grow:1; }
+.pipeline-step .step-count  { color: var(--muted); font-size:0.78rem; }
+/* Landing page */
+.landing-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 65vh;
+    gap: 1.6rem;
+}
+.sonareye-hero {
+    font-size: 3.6rem;
+    font-weight: 800;
+    color: #e6edf3;
+    letter-spacing: 0.04em;
+    text-align: center;
+    margin: 0;
+    font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+}
+.hero-sub {
+    color: #8b949e;
+    font-size: 1rem;
+    text-align: center;
+    margin: 0;
+    letter-spacing: 0.02em;
+}
+.hero-accent { color: #2ea8a0; }
+</style>
+""", unsafe_allow_html=True)
 
-threshold = st.sidebar.slider("Segmentation threshold", 0.3, 0.8, 0.5, 0.05)
-min_area = st.sidebar.slider("Min detection area (px)", 20, 500, 80, 10)
-stress = st.sidebar.checkbox("Apply synthetic noise (stress test)", disabled=input_mode == "XTF sonar log")
 
-if input_mode == "Image file":
-    lat0 = st.sidebar.number_input("Origin lat", value=45.0855, format="%.6f")
-    lon0 = st.sidebar.number_input("Origin lon", value=-83.5684, format="%.6f")
-    heading = st.sidebar.slider("Vehicle heading (deg)", 0.0, 359.0, 90.0)
-    altitude = st.sidebar.slider("Altitude (m)", 5.0, 50.0, 15.0)
-    range_m = st.sidebar.slider("Sonar range per side (m)", 10.0, 100.0, 50.0)
-    along_track = st.sidebar.slider("Along-track length (m)", 20.0, 500.0, 120.0)
-    meta_from_file = None
-else:
-    st.sidebar.caption("Navigation & geometry auto-loaded from the XTF ping headers.")
-    slant_fix = st.sidebar.checkbox("Apply slant-range correction", value=True)
+# ---- Paths ----
+_REPO_ROOT = Path(__file__).parent.parent
+DATA_IMG = _REPO_ROOT / "AI4Shipwrecks" / "AI4Shipwrecks" / "test" / "images"
+if not DATA_IMG.exists():
+    import os as _os
+    _env = _os.environ.get("SONAR_TEST_IMAGES")
+    DATA_IMG = Path(_env) if _env else DATA_IMG
 
-with st.expander("About this model — scope, limitations & performance", expanded=False):
+_SAMPLE_NAV_FILE = DATA_IMG / "sample_nav.json"
+_SAMPLE_NAV: dict = json.loads(_SAMPLE_NAV_FILE.read_text(encoding="utf-8")) if _SAMPLE_NAV_FILE.exists() else {}
+
+
+# ---- SSS device presets ----
+# EdgeTech 2205: AI4Shipwrecks dataset device, 132 kHz, ~50 m/side typical operational
+# EdgeTech 4125: edgetech.com — 400 kHz 150 m/side, 900 kHz 75 m/side
+# Klein 3000: maritimepropulsion.com — 500 kHz 25-600 m/ch, 100 kHz 100-600 m/ch
+_SSS_PRESETS = {
+    "Custom / Manual":                    {"range_m": None,  "freq": None},
+    "EdgeTech 2205 (132 kHz) — dataset":  {"range_m": 50.0,  "freq": "132 kHz"},
+    "EdgeTech 4125 — 400 kHz mode":       {"range_m": 150.0, "freq": "400 kHz"},
+    "EdgeTech 4125 — 900 kHz mode":       {"range_m": 75.0,  "freq": "900 kHz"},
+    "Klein 3000 — 500 kHz mode":          {"range_m": 75.0,  "freq": "500 kHz"},
+    "Klein 3000 — 100 kHz mode":          {"range_m": 300.0, "freq": "100 kHz"},
+}
+
+
+def _badge(status: str) -> str:
+    cls = f"badge-{status.lower().replace(' ', '-')}"
+    return f'<span class="status-badge {cls}">{status}</span>'
+
+
+def _ai_badge() -> str:
+    return '<span class="status-badge badge-ai">AI: Detected</span>'
+
+
+def _purge_sample_run_if_needed(run_id, source) -> bool:
+    """Hard-delete a sample run from SQLite. Never deletes upload-tagged runs."""
+    if not run_id or source != "sample":
+        return False
+    return delete_sample_run(get_db(), run_id)
+
+
+def _reset_survey_session() -> None:
+    """Explicit start-over: drop the committed survey and in-session review cursor.
+
+    Sample/demo runs are hard-deleted from SQLite (reviews + run row).
+    User-uploaded survey reviews are left in place so they persist across refresh.
+    """
+    prev_id = st.session_state.get("run_id")
+    prev_src = (st.session_state.get("survey_cfg") or {}).get("source")
+    _purge_sample_run_if_needed(prev_id, prev_src)
+    st.session_state["survey_started"] = False
+    st.session_state["survey_cfg"] = None
+    for k in (
+        "run_id",
+        "last_file",
+        "_infer_results",
+        "_infer_file_key",
+        "_infer_params_key",
+        "review_det_id",
+        "selected_det",
+        "detail_return",
+        "_sr_done",
+        "_sr_total",
+        "_map_last_tip",
+    ):
+        st.session_state.pop(k, None)
+    st.session_state["review_idx"] = 0
+    st.session_state["review_complete"] = False
+    st.session_state["cfg_sample"] = ""
+
+
+def _commit_survey(cfg: dict) -> None:
+    st.session_state["survey_cfg"] = cfg
+    st.session_state["survey_started"] = True
+    # New commit: reset the review cursor; detections belong to this file.
+    st.session_state["review_idx"] = 0
+    st.session_state["review_complete"] = False
+    st.session_state.pop("review_det_id", None)
+    st.session_state.pop("selected_det", None)
+    if cfg.get("source") == "sample":
+        # Wipe any leftover demo rows for this file hash before the new run registers.
+        st.session_state["_sample_reset_pending"] = True
+
+
+def _survey_inputs_ready(file_bytes, input_mode: str, selected_device: str, range_m) -> tuple[bool, list[str]]:
+    missing = []
+    if not file_bytes:
+        missing.append("Load a sonar image or XTF log")
+    if input_mode == "Image file":
+        if not selected_device:
+            missing.append("Select an SSS device preset (or Custom / Manual)")
+        if range_m is None:
+            missing.append("Set range per side (or pick an SSS preset)")
+    return (len(missing) == 0, missing)
+
+
+def _pdf_latin(text) -> str:
+    """Helvetica core fonts are latin-1 only; em-dashes were crashing PDF export."""
+    if text is None:
+        return "-"
+    s = str(text)
+    for src, dst in (
+        ("\u2014", "-"),
+        ("\u2013", "-"),
+        ("\u2018", "'"),
+        ("\u2019", "'"),
+        ("\u201c", '"'),
+        ("\u201d", '"'),
+        ("\u2022", "-"),
+        ("\u00a0", " "),
+    ):
+        s = s.replace(src, dst)
+    return s.encode("latin-1", "replace").decode("latin-1")
+
+
+def build_mission_pdf(
+    *,
+    name: str,
+    run_id: str,
+    geod: list,
+    reviews: dict,
+    rc: dict,
+    t_infer: float,
+    clean,
+) -> bytes:
+    from fpdf import FPDF
+    from fpdf.enums import XPos, YPos
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    def _ln_cell(w, h, txt, **kwargs):
+        pdf.cell(w, h, _pdf_latin(txt), new_x=XPos.LMARGIN, new_y=YPos.NEXT, **kwargs)
+
+    pdf.set_font("Helvetica", "B", 20)
+    pdf.set_text_color(13, 17, 23)
+    _ln_cell(0, 14, "SonarEye - Mission Report", align="C")
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(100, 100, 100)
+    _ln_cell(0, 6, "Side-scan sonar anomaly detection & operator verification platform", align="C")
+    pdf.ln(4)
+
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(30, 30, 30)
+    _ln_cell(0, 7, "Survey Metadata")
+    pdf.set_font("Helvetica", "", 9)
+    generated_at = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    for label, val in [
+        ("Survey file",   name),
+        ("Run ID",        run_id),
+        ("Generated",     generated_at),
+        ("Anomalies",     str(len(geod))),
+        ("Reviewed",      str(rc["reviewed"])),
+        ("Confirmed",     str(rc["confirmed"])),
+        ("Rejected",      str(rc["rejected"])),
+        ("High-conf >=60", str(rc["high_conf"])),
+        ("Inference",     f" {t_infer:.2f}s"),
+    ]:
+        pdf.cell(50, 6, _pdf_latin(f"{label}:"), border=0)
+        _ln_cell(0, 6, val)
+    pdf.ln(4)
+
+    pdf.set_font("Helvetica", "B", 11)
+    _ln_cell(0, 7, "Detection Summary")
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(230, 237, 243)
+    col_w = [10, 22, 28, 28, 38, 38]
+    headers = ["ID", "Conf", "Lat", "Lon", "AI Classification", "Human Review"]
+    for w, h in zip(col_w, headers):
+        pdf.cell(w, 6, _pdf_latin(h), border=1, fill=True)
+    pdf.ln()
+    pdf.set_font("Helvetica", "", 7)
+    for d in geod:
+        rev = reviews.get(d["id"], {})
+        classif = "Natural feature" if d["likely_rock_or_shadow"] else "Artificial anomaly"
+        row_vals = [
+            str(d["id"]),
+            f"{d['confidence']:.0f}",
+            f"{d['lat']:.5f}" if d.get("lat") is not None else "-",
+            f"{d['lon']:.5f}" if d.get("lon") is not None else "-",
+            classif,
+            rev.get("action", "unreviewed"),
+        ]
+        for w, v in zip(col_w, row_vals):
+            pdf.cell(w, 5, _pdf_latin(str(v)[:22]), border=1)
+        pdf.ln()
+    pdf.ln(4)
+
+    # Location sketch (static; no live map object, no tile fetch)
+    geo_pts = [d for d in geod if d.get("lat") is not None and d.get("lon") is not None]
+    if geo_pts:
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots(figsize=(6.2, 3.6))
+            lons = [d["lon"] for d in geo_pts]
+            lats = [d["lat"] for d in geo_pts]
+            colors = ["#3fb950" if reviews.get(d["id"], {}).get("action") == "confirm"
+                      else "#f85149" if reviews.get(d["id"], {}).get("action") == "reject"
+                      else "#58a6ff" for d in geo_pts]
+            ax.scatter(lons, lats, c=colors, s=40, zorder=3)
+            for d in geo_pts:
+                ax.annotate(f"#{d['id']}", (d["lon"], d["lat"]), fontsize=7, xytext=(3, 3),
+                            textcoords="offset points")
+            ax.set_xlabel("Longitude")
+            ax.set_ylabel("Latitude")
+            ax.set_title("Detection locations")
+            ax.grid(True, alpha=0.3)
+            ax.ticklabel_format(useOffset=False, style="plain")
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+            plt.close(fig)
+            buf.seek(0)
+            pdf.set_font("Helvetica", "B", 11)
+            _ln_cell(0, 7, "Map snapshot (detection locations)")
+            pdf.image(buf, x=15, w=170)
+            pdf.ln(4)
+        except Exception:
+            pdf.set_font("Helvetica", "I", 8)
+            _ln_cell(0, 5, "(Map snapshot could not be rendered; table coordinates above remain authoritative.)")
+
+    if clean is not None:
+        pdf.set_font("Helvetica", "B", 11)
+        _ln_cell(0, 7, "Sonar Survey Image with Detections")
+        overlay_pdf = cv2.cvtColor((clean * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+        for d in geod:
+            x1, y1, x2, y2 = d["bbox_xyxy"]
+            color_bgr = (0, 80, 248) if d["likely_rock_or_shadow"] else (63, 185, 80)
+            cv2.rectangle(overlay_pdf, (x1, y1), (x2, y2), color_bgr, 2)
+            cv2.putText(overlay_pdf, str(d["id"]), (x1, max(y1 - 4, 12)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_bgr, 1)
+        # Downscale so the page cannot overflow
+        max_px = 1400
+        h0, w0 = overlay_pdf.shape[:2]
+        if max(h0, w0) > max_px:
+            scale = max_px / max(h0, w0)
+            overlay_pdf = cv2.resize(overlay_pdf, (int(w0 * scale), int(h0 * scale)))
+        _, img_enc = cv2.imencode(".png", overlay_pdf)
+        img_buf = io.BytesIO(img_enc.tobytes())
+        max_w = 170
+        img_h = max_w * overlay_pdf.shape[0] / overlay_pdf.shape[1]
+        img_h = min(img_h, 90)
+        pdf.image(img_buf, x=15, w=max_w, h=img_h)
+
+    pdf.ln(8)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_text_color(30, 30, 30)
+    _ln_cell(0, 6, "System Information")
+    pdf.set_font("Helvetica", "", 7)
+    pdf.set_text_color(100, 100, 100)
+    pdf.multi_cell(0, 4, _pdf_latin(
+        "Model: U-Net + ResNet34 encoder (no scSE attention). "
+        "Trained on AI4Shipwrecks (Thunder Bay NMSA, 286 images, 28 wreck sites, EdgeTech 2205 ~132 kHz). "
+        "Internal test IoU: 0.427 / Dice: 0.598 (13 held-out sites). "
+        "Confidence scores are heuristic composites - not calibrated probabilities. "
+        "All detections require operator verification."
+    ))
+    raw = pdf.output()
+    return bytes(raw)
+
+
+# ================================================================
+# LANDING PAGE
+# ================================================================
+if "app_entered" not in st.session_state:
+    st.session_state["app_entered"] = False
+
+if not st.session_state["app_entered"]:
     st.markdown("""
-**Detection scope:** Shipwrecks only. Trained on the AI4Shipwrecks dataset (Thunder Bay NMS,
-28 sites, Iver3 AUV + EdgeTech 2205 side-scan sonar). Pipes, cylinders, and ghost nets are **not detected** —
-no annotated sonar training data exists for those classes.
+    <div class="landing-wrap">
+        <p class="sonareye-hero">Sonar<span class="hero-accent">Eye</span></p>
+        <p class="hero-sub">Side-scan sonar anomaly detection &amp; operator verification platform</p>
+        <p class="hero-sub" style="font-size:0.82rem; margin-top:-0.8rem;">
+            U-Net / ResNet34 &nbsp;&bull;&nbsp; AI4Shipwrecks dataset &nbsp;&bull;&nbsp;
+            Test IoU 0.427 &nbsp;&bull;&nbsp; Interactive inference
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    _, col_btn, _ = st.columns([3, 1, 3])
+    with col_btn:
+        if st.button("Launch SonarEye", use_container_width=True):
+            st.session_state["app_entered"] = True
+            st.rerun()
+    st.stop()
 
-**Performance (test set, held-out sites never seen during training):**
 
-| Split | IoU | Dice |
-|-------|-----|------|
-| Validation (in-distribution) | 0.713 | 0.833 |
-| **Test (held-out sites)** | **0.427** | **0.598** |
+# ================================================================
+# SIDEBAR — persistent navigation + survey config
+# ================================================================
+with st.sidebar:
+    st.markdown('<p class="sonareye-hero" style="font-size:1.4rem; margin-bottom:4px;">Sonar<span class="hero-accent">Eye</span></p>', unsafe_allow_html=True)
+    st.markdown('<p style="color:#8b949e; font-size:0.72rem; margin-top:0; margin-bottom:8px;">Anomaly Detection Platform</p>', unsafe_allow_html=True)
+    st.divider()
 
-Test IoU 0.427 is the headline metric. SOTA on comparable sonar benchmarks: 0.55–0.77.
-No independent external sonar benchmark exists for this taxonomy.
+    # Navigation
+    st.markdown('<p class="nav-section-header">Navigation</p>', unsafe_allow_html=True)
+    if "nav" not in st.session_state:
+        st.session_state["nav"] = "overview"
+    if "review_idx" not in st.session_state:
+        st.session_state["review_idx"] = 0
+    if "review_complete" not in st.session_state:
+        st.session_state["review_complete"] = False
+    if "survey_started" not in st.session_state:
+        st.session_state["survey_started"] = False
 
-**Inference latency** (PyTorch FP32, 10 images, CPU=i7-12700H, GPU=RTX 4050, CUDA 12.1):
+    nav_items = [
+        ("overview",    "Overview"),
+        ("survey",      "Survey"),
+        ("analysis",    "Analysis"),
+        ("detections",  "Detections"),
+        ("detail",      "Anomaly Detail"),
+        ("map",         "Map"),
+        ("review",      "Summary"),
+        ("report",      "Report"),
+        ("system",      "System & Validation"),
+    ]
+    _cur_nav_sb = st.session_state.get("nav", "overview")
+    for key, label in nav_items:
+        # Sequential review is part of the detections/queue stage
+        active = _cur_nav_sb == key or (key == "detections" and _cur_nav_sb == "seq_review")
+        if st.button(label, key=f"nav_{key}", use_container_width=True, type="primary" if active else "secondary"):
+            st.session_state["nav"] = key
+            st.rerun()
 
-| Backend | mean | min | max |
-|---------|------|-----|-----|
-| PyTorch FP32 / CPU | 4.29s | 1.53s | 6.23s |
-| PyTorch FP32 / GPU (RTX 4050) | 0.37s | 0.13s | 0.54s |
-| ONNX FP32 / CPU | 3.08s | 0.89s | 5.27s |
-| ONNX INT8 / CPU† | 5.26s | 2.09s | 7.06s |
+    st.divider()
 
-† INT8 is **slower** than FP32 on this CPU (dynamic-quant overhead). Max diff vs FP32 = 0.6497 WARN.
-Spread tracks tile count (8–32 tiles per image → 1.5–6.2s range). Full results: `pipeline/benchmark_results.json`.
-"""
-)
+    # Survey configuration — keyed widgets so sidebar extra widgets cannot
+    # shift implicit IDs and wipe the sample/file selection (classic Streamlit pitfall).
+    st.markdown('<p class="nav-section-header">Survey Configuration</p>', unsafe_allow_html=True)
 
-_MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200 MB hard limit for this local demo
+    meta_from_file = None
+    pending_bytes = None
+    pending_name = None
+    pending_source = "upload"
+    file_bytes = None
+    name = None
+    slant_fix = True
+    selected_device = "Custom / Manual"
+    range_m = 50.0
+    lat0, lon0, heading, altitude, along_track = 45.0855, -83.5684, 90.0, 15.0, 120.0
+    threshold, min_area, stress = 0.5, 80, False
+    input_mode = "Image file"
 
-if file_bytes:
+    _survey_locked = bool(st.session_state.get("survey_started")) and st.session_state.get("survey_cfg")
+
+    if _survey_locked:
+        cfg = st.session_state["survey_cfg"]
+        input_mode = cfg["input_mode"]
+        file_bytes = cfg["file_bytes"]
+        name = cfg["name"]
+        pending_source = cfg.get("source", "upload")
+        threshold = cfg["threshold"]
+        min_area = cfg["min_area"]
+        stress = cfg["stress"]
+        lat0 = cfg.get("lat0", lat0)
+        lon0 = cfg.get("lon0", lon0)
+        heading = cfg.get("heading", heading)
+        altitude = cfg.get("altitude", altitude)
+        selected_device = cfg.get("selected_device", selected_device)
+        range_m = cfg.get("range_m", range_m)
+        along_track = cfg.get("along_track", along_track)
+        slant_fix = cfg.get("slant_fix", True)
+
+        st.success(f"Locked: **{name}**")
+        st.caption("File and analysis parameters are locked while this survey is in progress.")
+        st.caption(f"Threshold {threshold:.2f} · min area {min_area} px")
+        if input_mode == "Image file":
+            st.caption(f"{selected_device} · range {range_m:.0f} m/side")
+        if st.button("Start New Survey", key="sb_new_survey", use_container_width=True):
+            _reset_survey_session()
+            st.session_state["nav"] = "survey"
+            st.rerun()
+    else:
+        input_mode = st.radio(
+            "Input source",
+            ["Image file", "XTF sonar log"],
+            label_visibility="collapsed",
+            key="cfg_input_mode",
+        )
+        if input_mode == "Image file":
+            uploaded = st.file_uploader(
+                "Upload sonar image", type=["png", "jpg", "jpeg"], key="cfg_upload_img"
+            )
+            _qp_sample = st.query_params.get("sample", "")
+            _sample_opts = [""] + sorted(p.name for p in DATA_IMG.glob("*.png"))
+            if _qp_sample in _sample_opts and not st.session_state.get("cfg_sample"):
+                st.session_state["cfg_sample"] = _qp_sample
+            sample = st.selectbox(
+                "...or pick a sample",
+                _sample_opts,
+                key="cfg_sample",
+            )
+            if uploaded:
+                pending_bytes, pending_name = uploaded.getvalue(), uploaded.name
+                pending_source = "upload"
+            elif sample:
+                pending_bytes, pending_name = (DATA_IMG / sample).read_bytes(), sample
+                pending_source = "sample"
+        else:
+            uploaded = st.file_uploader(
+                "Upload .xtf sonar log", type=["xtf"], key="cfg_upload_xtf"
+            )
+            if uploaded:
+                pending_bytes, pending_name = uploaded.getvalue(), uploaded.name
+                pending_source = "upload"
+
+        threshold = st.slider("Segmentation threshold", 0.3, 0.8, 0.5, 0.05, key="cfg_threshold")
+        min_area = st.slider("Min detection area (px)", 20, 500, 80, 10, key="cfg_min_area")
+        stress = st.checkbox(
+            "Synthetic noise (stress test)",
+            disabled=input_mode == "XTF sonar log",
+            key="cfg_stress",
+        )
+
+        if input_mode == "Image file":
+            lat0 = st.number_input("Origin lat", value=45.0855, format="%.6f", key="cfg_lat0")
+            lon0 = st.number_input("Origin lon", value=-83.5684, format="%.6f", key="cfg_lon0")
+            heading = st.slider("Heading (deg)", 0.0, 359.0, 90.0, key="cfg_heading")
+            altitude = st.slider("Altitude (m)", 5.0, 50.0, 15.0, key="cfg_altitude")
+            st.markdown("**SSS Device**")
+            selected_device = st.selectbox(
+                "Device preset",
+                list(_SSS_PRESETS.keys()),
+                key="cfg_device",
+                label_visibility="collapsed",
+            )
+            preset = _SSS_PRESETS[selected_device]
+            if preset["freq"]:
+                st.caption(f"Frequency: {preset['freq']}")
+            if preset["range_m"] is not None:
+                range_m = preset["range_m"]
+                st.caption(f"Range/side: {range_m:.0f} m (preset)")
+            else:
+                range_m = st.slider("Range per side (m)", 10.0, 600.0, 50.0, key="cfg_range_m")
+            along_track = st.slider("Along-track length (m)", 20.0, 500.0, 120.0, key="cfg_along_track")
+        else:
+            st.caption("Navigation & geometry auto-loaded from XTF ping headers.")
+            slant_fix = st.checkbox("Apply slant-range correction", value=True, key="cfg_slant_fix")
+
+    # Sequential-review progress is AFTER keyed/locked config so it can never
+    # shift file-selector widget identity.
+    if _cur_nav_sb == "seq_review" and st.session_state.get("survey_started"):
+        _sb_done = st.session_state.get("_sr_done", 0)
+        _sb_total = st.session_state.get("_sr_total", 0)
+        if _sb_total > 0:
+            st.progress(_sb_done / _sb_total, text=f"Review: {_sb_done}/{_sb_total}")
+
+
+# ================================================================
+# COMPUTATION — runs only for a *committed* survey (Start Survey).
+# Widget/pending selection is NOT enough: that was causing analysis
+# to bind to a selectbox that Streamlit could reset on nav reruns.
+# Source of truth is st.session_state["survey_cfg"].
+# ================================================================
+_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+geod = []
+reviews = {}
+run_id = None
+json_path = csv_path = None
+clean = mask = prob = None
+img = None
+_t_infer_s = 0.0
+_nav_pings = None  # per-ping nav list (XTF only), kept for future track-line overlay
+_pipeline_log = []  # list of (label, count_str) for pipeline visualization
+
+if file_bytes and st.session_state.get("survey_started"):
     if len(file_bytes) > _MAX_UPLOAD_BYTES:
         st.error(
-            f"File is {len(file_bytes) / 1024 / 1024:.1f} MB — exceeds the 200 MB upload limit. "
-            "Reduce file size or split the survey log before uploading."
+            f"File is {len(file_bytes) / 1024 / 1024:.1f} MB — exceeds the 200 MB upload limit."
         )
         st.stop()
 
     import tempfile
-
     suffix = Path(name).suffix
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(file_bytes)
@@ -142,15 +687,12 @@ if file_bytes:
         except ValueError as exc:
             st.error(f"Could not parse XTF file: {exc}")
             st.stop()
+        _nav_pings = nav
+        _pipeline_log.append(("Ingest XTF", f"{info['n_pings']} pings, {info['n_channels']} channels"))
         st.sidebar.success(
-            f"Parsed: {info.get('sonar_name', b'?').decode()} | {info['n_pings']} pings | "
-            f"waterfall {wf.shape[0]}x{wf.shape[1]}"
+            f"Parsed: {info.get('sonar_name', b'?').decode()} | {info['n_pings']} pings"
         )
         meta_from_file = nav_to_meta(nav, wf.shape)
-        st.sidebar.write(
-            f"Origin: {meta_from_file.lat0:.5f}, {meta_from_file.lon0:.5f} | "
-            f"heading {meta_from_file.heading_deg:.0f} deg | alt {meta_from_file.altitude_m:.0f} m"
-        )
         if slant_fix:
             wf = slant_range_correct(wf, meta_from_file.altitude_m, meta_from_file.range_m)
         img = wf
@@ -158,180 +700,1319 @@ if file_bytes:
         img = cv2.imdecode(np.frombuffer(file_bytes, np.uint8), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
         if stress:
             img = apply_sonar_synth(img)
+        _pipeline_log.append(("Ingest image", f"{img.shape[1]}x{img.shape[0]} px"))
 
-    with st.spinner("Preprocessing..."):
-        clean, gap = preprocess(img)
+    clean, gap = preprocess(img)
+    _pipeline_log.append(("Speckle reduction (Lee filter) + gain normalisation", ""))
+    _pipeline_log.append(("Water-column crop", f"gap={gap}px"))
 
-    detector = get_detector()
-    detector.threshold = threshold
-    _t_infer_start = time.perf_counter()
-    with st.spinner("Running segmentation..."):
+    # ── Session-state inference cache ──────────────────────────────────────────
+    # run_id is stable for the same (file_bytes, name) pair.  Checking it here
+    # means st.rerun() from a review save skips the ~4 s CPU inference pipeline
+    # entirely — only the review UI section re-renders.
+    _file_key = (name, len(file_bytes))
+    _file_changed = st.session_state.get("_infer_file_key") != _file_key
+    _params_key = (threshold, min_area, stress)
+    _params_changed = st.session_state.get("_infer_params_key") != _params_key
+    _need_infer = _file_changed or _params_changed or "_infer_results" not in st.session_state
+
+    if _need_infer:
+        detector = get_detector()
+        detector.threshold = threshold
+        _t_infer_start = time.perf_counter()
         if input_mode == "XTF sonar log":
             h, w = clean.shape
             resized = cv2.resize(clean, (512, 512), interpolation=cv2.INTER_AREA)
-            prob_s, mask_s, dets = detector(resized, preprocessed=True)
+            prob_s, mask_s, _ = detector(resized, preprocessed=True)
             sx, sy = w / 512, h / 512
-            for d in dets:
+            prob = cv2.resize(prob_s, (w, h))
+            mask = (prob > threshold).astype(np.uint8)
+            dets_raw = detector.extract_detections(prob, mask, min_area=min_area)
+            for d in dets_raw:
                 x1, y1, x2, y2 = d["bbox_xyxy"]
                 d["bbox_xyxy"] = [int(x1 * sx), int(y1 * sy), int(x2 * sx), int(y2 * sy)]
                 d["centroid_px"] = [d["centroid_px"][0] * sx, d["centroid_px"][1] * sy]
-            prob = cv2.resize(prob_s, (w, h))
-            mask = (prob > threshold).astype(np.uint8)
         else:
-            prob, mask, dets = detector(clean, preprocessed=True)
-        dets = detector.extract_detections(prob, mask, min_area=min_area)
-        scored = score_detections(clean, prob, dets, mask)
-    _t_infer_s = time.perf_counter() - _t_infer_start
+            prob, mask, _ = detector(clean, preprocessed=True)
+            dets_raw = detector.extract_detections(prob, mask, min_area=min_area)
 
-    if input_mode == "XTF sonar log":
-        meta = meta_from_file
+        n_tiles = max(1, (clean.shape[0] // 512) * (clean.shape[1] // 512))
+        _pipeline_log.append(("Segmentation inference", f"{n_tiles} tile(s), threshold={threshold}"))
+        scored = score_detections(clean, prob, dets_raw, mask)
+        _t_infer_s = time.perf_counter() - _t_infer_start
+        _pipeline_log.append(("Connected-component extraction", f"{len(dets_raw)} component(s), min_area={min_area}px"))
+        _pipeline_log.append(("Confidence scoring", f"{len(scored)} detection(s) scored"))
+
+        if input_mode == "XTF sonar log":
+            meta = meta_from_file
+        else:
+            meta = SonarMeta(
+                lat0=lat0, lon0=lon0, heading_deg=heading,
+                altitude_m=altitude, range_m=range_m, along_track_m=along_track,
+            )
+        mapper = PixelGeoMapper(clean.shape[0], clean.shape[1], meta)
+        geod = mapper.geotag(scored)
+        _pipeline_log.append(("Geotagging", f"origin ({meta.lat0:.4f}, {meta.lon0:.4f})"))
+
+        # Store in session state so review-save reruns are instant
+        st.session_state["_infer_results"] = (prob, mask, geod, meta, _t_infer_s)
+        st.session_state["_infer_file_key"] = _file_key
+        st.session_state["_infer_params_key"] = _params_key
     else:
-        meta = SonarMeta(
-            lat0=lat0, lon0=lon0, heading_deg=heading,
-            altitude_m=altitude, range_m=range_m, along_track_m=along_track,
-        )
-    mapper = PixelGeoMapper(clean.shape[0], clean.shape[1], meta)
-    geod = mapper.geotag(scored)
-    if "run_id" not in st.session_state or st.session_state.get("last_file") != name:
-        st.session_state["run_id"] = make_run_id(file_bytes, name)
+        # Cache hit: restore results without re-running inference
+        prob, mask, geod, meta, _t_infer_s = st.session_state["_infer_results"]
+        n_tiles = max(1, (clean.shape[0] // 512) * (clean.shape[1] // 512))
+        _pipeline_log.append(("Segmentation inference", f"{n_tiles} tile(s) [cached]"))
+        _pipeline_log.append(("Confidence scoring", f"{len(geod)} detection(s) [cached]"))
+        _pipeline_log.append(("Geotagging", f"origin ({meta.lat0:.4f}, {meta.lon0:.4f}) [cached]"))
+
+    _src = (st.session_state.get("survey_cfg") or {}).get("source", "upload")
+    _rid = make_run_id(file_bytes, name)
+    if _src == "sample":
+        # Distinct from an upload of the same bytes so demo reset cannot touch user data.
+        _rid = "s_" + _rid
+    if st.session_state.pop("_sample_reset_pending", False) and _src == "sample":
+        delete_sample_run(get_db(), _rid)
+    if st.session_state.get("last_file") != name or "run_id" not in st.session_state:
+        st.session_state["run_id"] = _rid
         st.session_state["last_file"] = name
+        # Do not reset review_idx here — that used to fire whenever the
+        # sidebar sample widget flickered empty-then-back on a nav rerun.
     run_id = st.session_state["run_id"]
     conn = get_db()
-    register_run(conn, run_id, name, len(geod))
-    reviews = get_reviews_for_run(conn, run_id)
+    if not st.session_state.get("_purged_old_samples"):
+        purge_old_sample_runs(conn, keep_run_id=run_id)
+        st.session_state["_purged_old_samples"] = True
+    register_run(conn, run_id, name, len(geod), source=_src)
+    reviews = get_reviews_for_run(conn, run_id)  # always fresh from DB
     json_path, csv_path = save_report(geod, Path("hazard_report"), run_id=run_id, reviews=reviews)
+    _pipeline_log.append(("Report assembly", "JSON + CSV written"))
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.subheader("Preprocessed")
-        st.image((clean * 255).astype(np.uint8), use_container_width=True)
-    with c2:
-        st.subheader("Mask")
-        st.image(mask * 255, use_container_width=True)
-    with c3:
-        st.subheader("Detections")
-        overlay = cv2.cvtColor((clean * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
-        for d in geod:
-            x1, y1, x2, y2 = d["bbox_xyxy"]
-            color = (0, 0, 255) if d["likely_rock_or_shadow"] else (0, 255, 0)
-            cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(overlay, f"{d['confidence']:.0f}", (x1, max(y1 - 5, 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-        st.image(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB), use_container_width=True)
 
-    st.subheader(f"{len(geod)} detections")
-    st.caption(f"Inference time: {_t_infer_s:.2f}s (preprocess + tile inference; PyTorch FP32 / CPU)")
-    st.caption(
-        "Confidence is a heuristic composite score (0–100, uncalibrated). "
-        "It is NOT a probability. Values below 35 are flagged as possible rock/shadow false positives."
+# ================================================================
+# HELPERS (used across multiple sections)
+# ================================================================
+
+def _review_counts():
+    n_confirmed = sum(1 for r in reviews.values() if r.get("action") == "confirm")
+    n_rejected  = sum(1 for r in reviews.values() if r.get("action") == "reject")
+    n_uncertain = sum(1 for r in reviews.values() if r.get("action") in ("uncertain", "annotate"))
+    n_reviewed  = len(reviews)
+    n_unreviewed = len(geod) - n_reviewed
+    n_high_conf = sum(1 for d in geod if d["confidence"] >= 60)  # display bucket — arbitrary round threshold, not empirically validated
+    return dict(
+        confirmed=n_confirmed, rejected=n_rejected, uncertain=n_uncertain,
+        reviewed=n_reviewed, unreviewed=n_unreviewed, high_conf=n_high_conf,
     )
-    if geod:
-        rows = [
-            {
-                "id": d["id"],
-                "review_status": reviews.get(d["id"], {}).get("action", "unreviewed"),
-                "heuristic_conf (0-100)": d["confidence"],
-                "model_prob": round(d["mean_prob"], 3),
-                "geo_score": d["geo_score"],
-                "shadow_score": d["shadow_score"],
-                "lat": d["lat"],
-                "lon": d["lon"],
-                "flag": "possible rock/shadow" if d["likely_rock_or_shadow"] else "",
-            }
-            for d in geod
+
+
+def _signal_quality_heuristic(img: np.ndarray) -> tuple[str, float]:
+    """Heuristic signal quality from image variance/contrast. Returns (label, score 0-1)."""
+    std = float(np.std(img))
+    # Empirically: clean sonar tiles have std ~0.10-0.20; very low = flat/featureless
+    score = float(np.clip((std - 0.02) / 0.18, 0.0, 1.0))
+    if score >= 0.7:
+        label = "Good"
+    elif score >= 0.4:
+        label = "Moderate"
+    else:
+        label = "Low"
+    return label, score
+
+
+# ================================================================
+# MAIN CONTENT — section routing
+# ================================================================
+cur_nav = st.session_state.get("nav", "overview")
+
+# ── Mission progress stepper ────────────────────────────────────────────────
+# Horizontal breadcrumb shown when a file is loaded. Tells the operator
+# where they are in the mission flow without cluttering the sidebar.
+_MISSION_STAGES = [
+    ("survey",     "Survey"),
+    ("analysis",   "Analysis"),
+    ("detections", "Queue"),
+    ("seq_review", "Review"),
+    ("map",        "Map"),
+    ("review",     "Summary"),
+    ("report",     "Report"),
+]
+_STAGE_INDEX = {
+    "survey": 0, "analysis": 1, "detections": 2,
+    "seq_review": 3, "map": 4, "detail": 4, "review": 5, "report": 6,
+}
+if file_bytes and cur_nav in _STAGE_INDEX:
+    _csi = _STAGE_INDEX[cur_nav]
+    _parts = []
+    for _si, (_sid, _slabel) in enumerate(_MISSION_STAGES):
+        if _si < _csi:
+            _parts.append(
+                f"<span style='color:#3fb950;font-size:0.76rem;'>✔ {_slabel}</span>"
+            )
+        elif _si == _csi:
+            _parts.append(
+                f"<span style='background:#1d6fa4;color:#e6edf3;"
+                f"padding:2px 9px;border-radius:4px;"
+                f"font-size:0.76rem;font-weight:700;'>{_slabel}</span>"
+            )
+        else:
+            _parts.append(
+                f"<span style='color:#484f58;font-size:0.76rem;'>{_slabel}</span>"
+            )
+    st.markdown(
+        "<div style='margin-bottom:4px;'>" +
+        " <span style='color:#484f58;'>›</span> ".join(_parts) +
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+# ----------------------------------------------------------------
+# OVERVIEW
+# ----------------------------------------------------------------
+if cur_nav == "overview":
+    st.markdown("## Mission Overview")
+    if not st.session_state.get("survey_started") or not file_bytes:
+        st.markdown('<div class="info-box">No survey in progress. Load a sonar image or XTF log on the <b>Survey</b> page, configure geotag parameters, then click <b>Start Survey</b>.</div>', unsafe_allow_html=True)
+        st.markdown("")
+        col_start, _ = st.columns([1, 3])
+        if col_start.button("Start New Survey", key="ov_start_new", use_container_width=True, type="primary"):
+            st.session_state["nav"] = "survey"
+            st.rerun()
+        st.markdown("")
+        c1, c2, c3, c4 = st.columns(4)
+        for col, label, val, sub in [
+            (c1, "Anomalies",     "—", "AI-flagged candidates"),
+            (c2, "High-confidence","—", "Score ≥ 60"),
+            (c3, "Needs review",  "—", "Unreviewed"),
+            (c4, "Confirmed",     "—", "Operator-verified"),
+        ]:
+            col.markdown(f'<div class="stat-card"><div class="label">{label}</div><div class="value">{val}</div><div class="sub">{sub}</div></div>', unsafe_allow_html=True)
+    else:
+        rc = _review_counts()
+        st.markdown(f"**Survey:** `{name}`  &nbsp;|&nbsp;  Run ID: `{run_id}`  &nbsp;|&nbsp;  Inference: {_t_infer_s:.2f}s")
+        st.markdown("")
+        c1, c2, c3, c4 = st.columns(4)
+        cards = [
+            (c1, "Anomalies",      len(geod),          "AI-flagged candidates"),
+            (c2, "High-confidence", rc["high_conf"],    "Score ≥ 60"),
+            (c3, "Needs review",   rc["unreviewed"],    "Unreviewed"),
+            (c4, "Confirmed",      rc["confirmed"],     "Operator-verified"),
         ]
-        st.dataframe(rows, use_container_width=True)
-        st.map([{"lat": d["lat"], "lon": d["lon"]} for d in geod if not d["likely_rock_or_shadow"]])
+        for col, label, val, sub in cards:
+            col.markdown(f'<div class="stat-card"><div class="label">{label}</div><div class="value">{val}</div><div class="sub">{sub}</div></div>', unsafe_allow_html=True)
+        st.markdown("")
+        r1, r2 = st.columns(2)
+        r1.metric("Rejected",  rc["rejected"])
+        r2.metric("Uncertain / Annotated", rc["uncertain"])
+        st.markdown("")
+        col_a, col_b, col_c = st.columns([1, 1, 1])
+        if col_a.button("Go to Detections", key="ov_to_det", use_container_width=True, type="primary"):
+            st.session_state["nav"] = "detections"
+            st.rerun()
+        if col_b.button("Go to Map", key="ov_to_map", use_container_width=True):
+            st.session_state["nav"] = "map"
+            st.rerun()
+        if col_c.button("Start New Survey", key="ov_restart", use_container_width=True):
+            _reset_survey_session()
+            st.session_state["nav"] = "survey"
+            st.rerun()
 
-        cdl, cdr = st.columns(2)
-        cdl.download_button("Download JSON report", json_path.read_bytes(), "hazard_report.json", "application/json")
-        cdr.download_button("Download CSV report", csv_path.read_bytes(), "hazard_report.csv", "text/csv")
 
-        # ---- Review panel ----
-        st.divider()
-        st.subheader("Review Detections")
-        st.caption(
-            "Mark each detection as confirmed, rejected, uncertain, or annotated. "
-            "Actions are saved immediately and persist across restarts."
+# ----------------------------------------------------------------
+# SURVEY
+# ----------------------------------------------------------------
+elif cur_nav == "survey":
+    st.markdown("## Survey Configuration")
+    _started = bool(st.session_state.get("survey_started") and file_bytes)
+    _preview_bytes = file_bytes if _started else pending_bytes
+    _preview_name = name if _started else pending_name
+    _ready, _missing = _survey_inputs_ready(
+        _preview_bytes, input_mode, selected_device, range_m,
+    )
+
+    if not _preview_bytes:
+        st.markdown(
+            '<div class="info-box">Use the sidebar to load a sonar image or XTF log. '
+            "Configure geotag parameters and an SSS device preset, then click <b>Start Survey</b>.</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("""
+**Dataset context:** AI4Shipwrecks — Thunder Bay NMSA, 28 wreck sites, Iver3 AUV, EdgeTech 2205 SSS (~132 kHz). 286 images, CC-BY-4.0.
+
+**Model scope:** Trained on shipwreck targets. The model flags candidates that resemble the acoustic signature of man-made debris at this frequency range. All detections require operator verification.
+
+**Confidence scores** are heuristic composites (0–100) derived from model probability, geometric shape features, and shadow contrast — not calibrated probabilities.
+        """)
+    else:
+        if _started:
+            st.success(
+                f"Survey in progress: **{_preview_name}**  — {len(geod)} anomaly(ies) in the current run."
+            )
+        else:
+            st.success(f"Ready to start: **{_preview_name}** — file loaded, not yet committed.")
+
+        st.markdown("### Survey Quality Snapshot")
+        st.markdown(
+            '<div class="info-box"><b>Note:</b> Quality indicators below are heuristic estimates '
+            "derived from image statistics, not from calibrated sensor data.</div>",
+            unsafe_allow_html=True,
         )
 
-        categories = load_categories()
-        cat_keys = list(categories.keys())
-        cat_labels = [f"{k} — {v}" for k, v in categories.items()]
+        q1, q2, q3 = st.columns(3)
+        q1.metric("Data read", "Complete", help="Image decoded without errors")
+        if input_mode == "XTF sonar log":
+            q2.metric("Navigation metadata", "From XTF", help="Lat/lon/heading extracted from ping headers")
+        else:
+            q2.metric("Navigation metadata", "Manual", help="Geotag parameters entered manually")
 
-        def _action_idx(det_id):
-            rev = reviews.get(det_id, {})
-            action = rev.get("action")
-            opts = ["confirm", "reject", "uncertain", "annotate"]
-            return opts.index(action) if action in opts else None
+        _snap_img = None
+        if input_mode == "Image file" and _preview_bytes:
+            _snap_img = cv2.imdecode(
+                np.frombuffer(_preview_bytes, np.uint8), cv2.IMREAD_GRAYSCALE
+            )
+            if _snap_img is not None:
+                _snap_img = _snap_img.astype(np.float32) / 255.0
+        if _started and clean is not None:
+            sig_label, sig_score = _signal_quality_heuristic(clean)
+        elif _snap_img is not None:
+            sig_label, sig_score = _signal_quality_heuristic(_snap_img)
+        else:
+            sig_label, sig_score = "—", 1.0
+        q3.metric(
+            "Signal quality (heuristic)",
+            sig_label,
+            help="Variance-based heuristic. Not a calibrated SNR measurement.",
+        )
+        if sig_score < 0.4:
+            st.markdown(
+                '<div class="warn-box">Low signal variance detected. Image may be featureless or over-normalised. Detection quality may be reduced.</div>',
+                unsafe_allow_html=True,
+            )
 
-        def _cat_idx(det_id):
+    st.markdown("")
+    if _missing:
+        st.markdown(
+            "<div class='warn-box'><b>Still needed:</b> " + "; ".join(_missing) + "</div>",
+            unsafe_allow_html=True,
+        )
+
+    col_go, _ = st.columns([1, 3])
+    if _started:
+        if col_go.button(
+            "Continue to Analysis",
+            key="survey_continue",
+            type="primary",
+            use_container_width=True,
+        ):
+            st.session_state["nav"] = "analysis"
+            st.rerun()
+    else:
+        if col_go.button(
+            "Start Survey",
+            key="survey_start",
+            type="primary",
+            use_container_width=True,
+            disabled=not _ready,
+        ):
+            _commit_survey({
+                "input_mode": input_mode,
+                "file_bytes": pending_bytes,
+                "name": pending_name,
+                "threshold": threshold,
+                "min_area": min_area,
+                "stress": stress,
+                "lat0": lat0,
+                "lon0": lon0,
+                "heading": heading,
+                "altitude": altitude,
+                "selected_device": selected_device,
+                "range_m": range_m,
+                "along_track": along_track,
+                "slant_fix": slant_fix,
+                "source": pending_source,
+            })
+            st.session_state["nav"] = "analysis"
+            st.rerun()
+
+
+# ----------------------------------------------------------------
+# ANALYSIS
+# ----------------------------------------------------------------
+elif cur_nav == "analysis":
+    st.markdown("## Analysis")
+    if not file_bytes:
+        st.warning("No survey loaded — go to Survey first.")
+        if st.button("Go to Survey", key="an_to_survey", type="primary"):
+            st.session_state["nav"] = "survey"
+            st.rerun()
+    else:
+        st.caption(f"{name}  |  {len(geod)} anomaly(ies)  |  Inference: {_t_infer_s:.2f}s")
+
+        # Phase 4 — pipeline checklist
+        st.markdown("### Processing Pipeline")
+        for label, count in _pipeline_log:
+            st.markdown(
+                f'<div class="pipeline-step"><div class="dot-done"></div><div class="step-label">{label}</div><div class="step-count">{count}</div></div>',
+                unsafe_allow_html=True
+            )
+        st.markdown("")
+
+        st.markdown("### Sonar Imagery")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.caption("Preprocessed")
+            st.image((clean * 255).astype(np.uint8), use_container_width=True)
+        with c2:
+            st.caption("Segmentation mask")
+            st.image(mask * 255, use_container_width=True)
+        with c3:
+            st.caption("Detections overlay")
+            overlay = cv2.cvtColor((clean * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+            for d in geod:
+                x1, y1, x2, y2 = d["bbox_xyxy"]
+                color = (0, 80, 248) if d["likely_rock_or_shadow"] else (63, 185, 80)
+                cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(overlay, f"#{d['id']}  {d['confidence']:.0f}",
+                            (x1, max(y1 - 5, 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+            st.image(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB), use_container_width=True)
+
+        st.markdown("")
+        col_q, _ = st.columns([1, 3])
+        if col_q.button("Go to Detections", key="an_to_det", use_container_width=True, type="primary"):
+            st.session_state["nav"] = "detections"
+            st.rerun()
+
+
+# ----------------------------------------------------------------
+# DETECTIONS QUEUE (Phase 5)
+# ----------------------------------------------------------------
+elif cur_nav == "detections":
+    st.markdown("## Detection Queue")
+
+    if not file_bytes:
+        st.warning("No survey loaded — start a survey first.")
+        if st.button("Go to Survey", key="dq_to_survey", type="primary"):
+            st.session_state["nav"] = "survey"
+            st.rerun()
+    elif len(geod) == 0:
+        # Phase 5 empty-state fix
+        st.markdown('<div class="info-box">No anomalies detected in this survey.</div>', unsafe_allow_html=True)
+        st.markdown("")
+        e1, e2, e3 = st.columns(3)
+        e1.metric("Tiles processed", max(1, (clean.shape[0] // 512) * (clean.shape[1] // 512)))
+        e2.metric("Inference time", f"{_t_infer_s:.2f}s")
+        e3.metric("Detections", 0)
+        st.markdown("")
+        st.markdown('<div class="info-box">This may indicate a feature-poor image, a very high segmentation threshold, or a survey area with no anomalous objects above the minimum detection area. Analysis parameters are locked for this survey; use Start New Survey to reconfigure.</div>', unsafe_allow_html=True)
+        if st.button("Back to Analysis", key="dq_empty_an", type="primary"):
+            st.session_state["nav"] = "analysis"
+            st.rerun()
+    else:
+        rc = _review_counts()
+
+        # ── Primary CTA: Review in Sequence ─────────────────────────────────
+        if rc["unreviewed"] > 0:
+            _cta_c, _info_c = st.columns([1, 3])
+            with _cta_c:
+                if st.button(
+                    f"Review in Sequence  ({rc['unreviewed']} remaining)",
+                    key="start_seq_review",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    # Jump to first unreviewed detection
+                    _first_unrev = next(
+                        (i for i, d in enumerate(geod)
+                         if d["id"] not in reviews),
+                        0,
+                    )
+                    st.session_state["review_idx"] = _first_unrev
+                    st.session_state["review_complete"] = False
+                    st.session_state["nav"] = "seq_review"
+                    st.rerun()
+            with _info_c:
+                st.markdown(
+                    "<span style='color:#8b949e;font-size:0.82rem;'>"
+                    "Opens detections one at a time — each decision saves "
+                    "and advances automatically to the next unreviewed."
+                    "</span>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.success(
+                f"All {len(geod)} detections reviewed — "
+                f"{rc['confirmed']} confirmed · {rc['rejected']} rejected · "
+                f"{rc['uncertain']} uncertain."
+            )
+            if st.button("View on Map", key="queue_to_review", type="primary"):
+                st.session_state["nav"] = "map"
+                st.rerun()
+
+        st.divider()
+
+        # Phase 7 — AI vs Human aggregate counts
+        st.markdown(
+            f"**AI:** {_ai_badge()} &nbsp; {len(geod)} anomaly(ies) &nbsp;&nbsp; "
+            f"High-confidence: **{rc['high_conf']}** &nbsp;&nbsp; "
+            f"Needs review: **{rc['unreviewed']}** &nbsp;&nbsp; "
+            f"Confirmed: **{rc['confirmed']}** &nbsp;&nbsp; "
+            f"Rejected: **{rc['rejected']}**",
+            unsafe_allow_html=True
+        )
+        st.markdown("")
+
+        # Sort controls
+        sort_col, _ = st.columns([2, 4])
+        sort_by = sort_col.selectbox(
+            "Sort by",
+            ["Confidence (high first)", "Review status", "Review priority (closest to threshold)"],
+            label_visibility="collapsed",
+            key="dq_sort",
+        )
+
+        def _sort_key(d):
+            if sort_by == "Confidence (high first)":
+                return -d["confidence"]
+            elif sort_by == "Review status":
+                order = {"unreviewed": 0, "uncertain": 1, "annotate": 2, "confirm": 3, "reject": 4}
+                return order.get(reviews.get(d["id"], {}).get("action", "unreviewed"), 0)
+            else:  # review priority
+                # Phase 11: closest to likely_rock_or_shadow threshold (35.0) = most ambiguous
+                return abs(d["confidence"] - 35.0)
+
+        sorted_geod = sorted(geod, key=_sort_key)
+
+        # Detection list
+        for d in sorted_geod:
+            det_id = d["id"]
             rev = reviews.get(det_id, {})
-            cat = rev.get("category")
-            return cat_keys.index(cat) if cat in cat_keys else 0
+            action = rev.get("action", "unreviewed")
+            flag_str = " — possible natural feature (rock/shadow)" if d["likely_rock_or_shadow"] else ""
+
+            col_info, col_conf, col_status, col_action = st.columns([3, 1, 1, 1])
+            col_info.markdown(
+                f"{_ai_badge()} &nbsp; **#{det_id}** &nbsp; "
+                f"Artificial anomaly (shipwreck-class model){flag_str}",
+                unsafe_allow_html=True
+            )
+            col_conf.metric("Confidence", f"{d['confidence']:.0f}", label_visibility="collapsed")
+            col_status.markdown(_badge(action), unsafe_allow_html=True)
+            if col_action.button("Detail", key=f"det_open_{det_id}"):
+                st.session_state["selected_det"] = det_id
+                st.session_state["nav"] = "detail"
+                st.rerun()
+            st.markdown('<hr style="margin:4px 0; border-color:#21262d;">', unsafe_allow_html=True)
+
+
+# ----------------------------------------------------------------
+# ANOMALY DETAIL (Phase 6)
+# ----------------------------------------------------------------
+elif cur_nav == "detail":
+    det_id = st.session_state.get("selected_det")
+    if not file_bytes or not geod or det_id is None:
+        st.warning("No detection selected. Go to Detections and click Detail on a detection.")
+        if st.button("Go to Detections", key="det_none_to_q", type="primary"):
+            st.session_state["nav"] = "detections"
+            st.rerun()
+    else:
+        d = next((x for x in geod if x["id"] == det_id), None)
+        if d is None:
+            st.warning(f"Detection #{det_id} not found in current survey.")
+        else:
+            rev = reviews.get(det_id, {})
+            action = rev.get("action", "unreviewed")
+            flag_str = "Possible natural feature (rock/shadow/seabed formation)" if d["likely_rock_or_shadow"] else "Artificial anomaly (shipwreck-class model)"
+
+            st.markdown(f"## Anomaly Detail — #{det_id}")
+            st.markdown(
+                f"{_ai_badge()} &nbsp; Human: {_badge(action)} &nbsp;&nbsp; "
+                f"**{flag_str}**",
+                unsafe_allow_html=True
+            )
+            st.markdown('<div class="warn-box">This is an AI-generated candidate and requires operator verification.</div>', unsafe_allow_html=True)
+
+            # Visual evidence chain
+            x1, y1, x2, y2 = d["bbox_xyxy"]
+            pad = 20
+            sy0, sy1 = max(0, y1 - pad), min(clean.shape[0], y2 + pad)
+            sx0, sx1 = max(0, x1 - pad), min(clean.shape[1], x2 + pad)
+
+            orig_crop  = img[sy0:sy1, sx0:sx1] if "img" in locals() else clean[sy0:sy1, sx0:sx1]
+            clean_crop = clean[sy0:sy1, sx0:sx1]
+            mask_crop  = mask[sy0:sy1, sx0:sx1]
+            prob_crop  = prob[sy0:sy1, sx0:sx1] if prob is not None else np.zeros_like(clean_crop)
+
+            # Shadow region crop
+            comp = np.zeros(clean.shape, bool)
+            comp[y1:y2, x1:x2] = mask[y1:y2, x1:x2].astype(bool)
+            shadow_vis = np.zeros((*clean.shape, 3), np.uint8)
+            shadow_vis[comp] = [240, 180, 0]  # amber = target
+            ring = np.zeros(clean.shape, np.uint8)
+            search = 40
+            rx0, rx1 = max(0, x1 - search), min(clean.shape[1], x2 + search)
+            ry0, ry1 = max(0, y1 - search), min(clean.shape[0], y2 + search)
+            ring[ry0:ry1, rx0:rx1] = 1
+            ring[y1:y2, x1:x2] = 0
+            shadow_vis[ring.astype(bool) & ~comp] = [46, 160, 67]  # green = search ring
+            shadow_crop = shadow_vis[sy0:sy1, sx0:sx1]
+
+            # Final overlay crop
+            overlay_full = cv2.cvtColor((clean * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+            color = (0, 80, 248) if d["likely_rock_or_shadow"] else (63, 185, 80)
+            cv2.rectangle(overlay_full, (x1, y1), (x2, y2), color, 2)
+            overlay_crop = overlay_full[sy0:sy1, sx0:sx1]
+
+            ec1, ec2, ec3, ec4, ec5 = st.columns(5)
+            ec1.caption("Original")
+            ec1.image((orig_crop * 255).astype(np.uint8), use_container_width=True)
+            ec2.caption("Enhanced (preprocessed)")
+            ec2.image((clean_crop * 255).astype(np.uint8), use_container_width=True)
+            ec3.caption("Segmentation mask")
+            ec3.image(mask_crop * 255, use_container_width=True)
+            ec4.caption("Shadow search region")
+            ec4.image(shadow_crop, use_container_width=True)
+            ec5.caption("Final detection")
+            ec5.image(cv2.cvtColor(overlay_crop, cv2.COLOR_BGR2RGB), use_container_width=True)
+
+            st.markdown("")
+
+            # Confidence breakdown (Phase 6)
+            def _strength(v):
+                # Display-only bands; not derived from data
+                if v >= 0.65: return "Strong"
+                elif v >= 0.35: return "Moderate"
+                else: return "Weak"
+
+            model_score = 0.5 * d["mean_prob"] + 0.5 * d.get("peak_prob", d["mean_prob"])
+            geo_score   = d["geo_score"]
+            sh_score    = d["shadow_score"]
+            geo_parts   = d.get("geo_parts", {})
+
+            st.markdown(f"### Composite Evidence Score: {d['confidence']:.0f} / 100")
+            st.markdown('<div class="info-box">Score is a heuristic composite — not a calibrated probability. Formula: 60% model probability + 40% × (70% geometry + 30% shadow contrast). Weights are hand-tuned.</div>', unsafe_allow_html=True)
+
+            sc1, sc2, sc3 = st.columns(3)
+            sc1.metric("Model probability",  f"{model_score:.3f}", help=f"Strength: {_strength(model_score)}")
+            sc2.metric("Geometric score",     f"{geo_score:.3f}",   help=f"Strength: {_strength(geo_score)} — aspect, solidity, edge sharpness")
+            sc3.metric("Shadow contrast",     f"{sh_score:.3f}",    help=f"Strength: {_strength(sh_score)} — target vs surrounding ring")
+
+            if geo_parts:
+                with st.expander("Geometric sub-scores"):
+                    gp1, gp2, gp3 = st.columns(3)
+                    gp1.metric("Aspect score",    f"{geo_parts.get('aspect', 0):.3f}")
+                    gp2.metric("Solidity score",  f"{geo_parts.get('solidity', 0):.3f}")
+                    gp3.metric("Edge sharpness",  f"{geo_parts.get('edge', 0):.3f}")
+
+            st.markdown(f"**Lat:** {d['lat']:.6f}  |  **Lon:** {d['lon']:.6f}  |  Flagged: {'Yes (likely natural)' if d['likely_rock_or_shadow'] else 'No'}")
+
+            st.markdown("")
+
+            # Review controls (from Phase 5)
+            st.markdown("### Verification")
+            categories = load_categories()
+            cat_keys = list(categories.keys())
+            cat_labels = [f"{k} — {v}" for k, v in categories.items()]
+
+            cur_cat = rev.get("category")
+            cat_idx = cat_keys.index(cur_cat) if cur_cat in cat_keys else 0
+            action_opts = ["confirm", "reject", "uncertain", "annotate"]
+            radio_opts = action_opts + ["(no review)"]
+            cur_act_idx = action_opts.index(action) if action in action_opts else len(action_opts)
+
+            col_rv, col_form = st.columns([1, 2])
+            with col_form:
+                chosen_action = st.radio(
+                    "Action", radio_opts, index=cur_act_idx,
+                    key=f"det_action_{run_id}_{det_id}", horizontal=True
+                )
+                chosen_cat = st.selectbox(
+                    "Category", cat_labels, index=cat_idx,
+                    key=f"det_cat_{run_id}_{det_id}"
+                )
+                chosen_note = st.text_area(
+                    "Note (optional)", value=rev.get("note") or "",
+                    key=f"det_note_{run_id}_{det_id}", max_chars=500
+                )
+                b_save, b_clear = st.columns(2)
+                if b_save.button("Save", key=f"det_save_{run_id}_{det_id}"):
+                    if chosen_action != "(no review)":
+                        conn = get_db()
+                        upsert_review(
+                            conn, run_id, det_id, chosen_action,
+                            cat_keys[cat_labels.index(chosen_cat)],
+                            chosen_note or None,
+                        )
+                        st.rerun()
+                if b_clear.button("Clear", key=f"det_clear_{run_id}_{det_id}"):
+                    conn = get_db()
+                    delete_review(conn, run_id, det_id)
+                    st.rerun()
+
+            _ret = st.session_state.get("detail_return", "detections")
+            _ret_label = {"review": "Summary", "map": "Map"}.get(_ret, "Detections")
+            col_back, _ = st.columns([1, 4])
+            if col_back.button(
+                f"← Back to {_ret_label}",
+                key="det_back",
+                use_container_width=True,
+            ):
+                st.session_state.pop("detail_return", None)
+                st.session_state["nav"] = _ret if _ret in ("review", "map", "detections") else "detections"
+                st.rerun()
+
+
+# ----------------------------------------------------------------
+# MAP — clickable detection markers (streamlit-folium)
+# ----------------------------------------------------------------
+elif cur_nav == "map":
+    st.markdown("## Survey Coverage Map")
+    if (st.session_state.get("survey_cfg") or {}).get("source") == "sample":
+        st.caption("Illustrative locations — approximate survey-area coordinates only. No real survey navigation data for this sample.")
+    if not file_bytes or not geod:
+        st.warning("No detections to map — start a survey first.")
+        if st.button("Go to Survey", key="map_to_survey", type="primary"):
+            st.session_state["nav"] = "survey"
+            st.rerun()
+    else:
+        _STATUS_HEX = {
+            "confirm":    "#3fb950",
+            "reject":     "#f85149",
+            "uncertain":  "#d29922",
+            "annotate":   "#d29922",
+            "unreviewed": "#58a6ff",
+        }
+        _map_points = []
+        for d in geod:
+            if d["lat"] is None or d["lon"] is None:
+                continue
+            action = reviews.get(d["id"], {}).get("action", "unreviewed")
+            _map_points.append({
+                "lat": d["lat"], "lon": d["lon"],
+                "det_id": d["id"], "confidence": round(d["confidence"], 1),
+                "review_status": action,
+                "classification": "Possible natural feature" if d["likely_rock_or_shadow"] else "Artificial anomaly",
+                "color": "#8b949e" if d["likely_rock_or_shadow"] else _STATUS_HEX.get(action, "#58a6ff"),
+            })
+
+        st.caption(
+            "Click a marker to open that detection's evidence panel. "
+            "Basemap: Esri World Imagery. "
+            "Green=confirmed  Red=rejected  Amber=uncertain  Blue=unreviewed  Grey=possible natural feature."
+        )
+
+        if not _FOLIUM_OK:
+            st.error(
+                "Map click handling requires streamlit-folium. "
+                "Install it with: pip install streamlit-folium folium"
+            )
+        elif not _map_points:
+            st.warning("No geotagged points to plot.")
+        else:
+            _clat = sum(p["lat"] for p in _map_points) / len(_map_points)
+            _clon = sum(p["lon"] for p in _map_points) / len(_map_points)
+            _fmap = folium.Map(location=[_clat, _clon], zoom_start=14, tiles=None)
+            folium.TileLayer(
+                tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                attr="Esri World Imagery",
+                name="Esri",
+            ).add_to(_fmap)
+            for pt in _map_points:
+                tip = f"det:{pt['det_id']}"
+                folium.CircleMarker(
+                    location=[pt["lat"], pt["lon"]],
+                    radius=10,
+                    color=pt["color"],
+                    fill=True,
+                    fill_color=pt["color"],
+                    fill_opacity=0.9,
+                    weight=2,
+                    tooltip=tip,
+                    popup=folium.Popup(
+                        f"#{pt['det_id']} {pt['classification']}<br/>"
+                        f"conf {pt['confidence']:.0f} / {pt['review_status']}",
+                        max_width=240,
+                    ),
+                ).add_to(_fmap)
+            _map_out = st_folium(
+                _fmap,
+                height=520,
+                width=None,
+                returned_objects=["last_object_clicked", "last_object_clicked_tooltip"],
+                key="survey_coverage_map",
+            )
+            _tip = None
+            if isinstance(_map_out, dict):
+                _tip = _map_out.get("last_object_clicked_tooltip")
+                if not _tip and _map_out.get("last_object_clicked"):
+                    loc = _map_out["last_object_clicked"]
+                    lat_c, lon_c = loc.get("lat"), loc.get("lng")
+                    if lat_c is not None and lon_c is not None:
+                        _tip = min(
+                            _map_points,
+                            key=lambda p: (p["lat"] - lat_c) ** 2 + (p["lon"] - lon_c) ** 2,
+                        )
+                        _tip = f"det:{_tip['det_id']}"
+            if _tip and _tip != st.session_state.get("_map_last_tip"):
+                try:
+                    _clicked_id = int(str(_tip).split(":")[-1])
+                except (TypeError, ValueError):
+                    _clicked_id = None
+                if _clicked_id is not None and any(d["id"] == _clicked_id for d in geod):
+                    st.session_state["_map_last_tip"] = _tip
+                    st.session_state["selected_det"] = _clicked_id
+                    st.session_state["detail_return"] = "map"
+                    st.session_state["nav"] = "detail"
+                    st.rerun()
+
+        st.markdown("")
+        m1, m2, _ = st.columns([1, 1, 2])
+        if m1.button("Continue to Summary", key="map_to_sum", type="primary", use_container_width=True):
+            st.session_state["nav"] = "review"
+            st.rerun()
+        if m2.button("Back to Queue", key="map_to_det", use_container_width=True):
+            st.session_state["nav"] = "detections"
+            st.rerun()
+
+
+# ----------------------------------------------------------------
+# SUMMARY
+# ----------------------------------------------------------------
+elif cur_nav == "review":
+    st.markdown("## Review Summary")
+    if not file_bytes:
+        st.warning("No survey loaded.")
+        if st.button("Go to Survey", key="sum_to_survey", type="primary"):
+            st.session_state["nav"] = "survey"
+            st.rerun()
+    elif len(geod) == 0:
+        st.markdown('<div class="info-box">No anomalies detected in this survey — nothing to summarise.</div>', unsafe_allow_html=True)
+        if st.button("Go to Analysis", key="sum_empty_an", type="primary"):
+            st.session_state["nav"] = "analysis"
+            st.rerun()
+    else:
+        rc = _review_counts()
+        st.markdown(f"**Survey:** `{name}`  &nbsp;|&nbsp;  Run ID: `{run_id}`")
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Confirmed", rc["confirmed"])
+        s2.metric("Rejected", rc["rejected"])
+        s3.metric("Uncertain / annotated", rc["uncertain"])
+        s4.metric("Unreviewed", rc["unreviewed"])
+        st.caption("Click an anomaly to reopen its review panel with the existing decision pre-filled and editable.")
+        st.markdown("")
 
         for d in geod:
             det_id = d["id"]
             rev = reviews.get(det_id, {})
-            action = rev.get("action")
-            badge = f" [{action}]" if action else " [unreviewed]"
-            flag_note = " (flagged: possible rock/shadow)" if d["likely_rock_or_shadow"] else ""
-            label = f"Detection #{det_id}{badge}{flag_note}  conf={d['confidence']:.0f}"
+            action = rev.get("action", "unreviewed")
+            flag_str = " — possible natural feature" if d["likely_rock_or_shadow"] else ""
+            c_id, c_conf, c_st, c_act = st.columns([3, 1, 1, 1])
+            c_id.markdown(
+                f"{_ai_badge()} &nbsp; **#{det_id}**{flag_str}",
+                unsafe_allow_html=True,
+            )
+            c_conf.markdown(f"conf **{d['confidence']:.0f}**")
+            c_st.markdown(_badge(action), unsafe_allow_html=True)
+            if c_act.button("Revise", key=f"sum_rev_{det_id}"):
+                st.session_state["selected_det"] = det_id
+                st.session_state["detail_return"] = "review"
+                st.session_state["nav"] = "detail"
+                st.rerun()
+            st.markdown('<hr style="margin:4px 0; border-color:#21262d;">', unsafe_allow_html=True)
 
-            with st.expander(label, expanded=(action is None)):
-                col_img, col_form = st.columns([1, 2])
+        st.markdown("")
+        _first_conf = next(
+            (d["id"] for d in geod if reviews.get(d["id"], {}).get("action") == "confirm"),
+            geod[0]["id"],
+        )
+        b1, b2, b3 = st.columns([2, 2, 1])
+        with b1:
+            if st.button(
+                "Investigate Anomalies",
+                key="sum_investigate",
+                type="primary",
+                use_container_width=True,
+            ):
+                st.session_state["selected_det"] = _first_conf
+                st.session_state["detail_return"] = "review"
+                st.session_state["nav"] = "detail"
+                st.rerun()
+        with b2:
+            if st.button("Continue to Report", key="sum_to_report", use_container_width=True):
+                st.session_state["nav"] = "report"
+                st.rerun()
+        with b3:
+            if st.button("Queue", key="sum_to_queue", use_container_width=True):
+                st.session_state["nav"] = "detections"
+                st.rerun()
 
-                with col_img:
-                    # bbox crop from preprocessed image
-                    try:
-                        x1, y1, x2, y2 = d["bbox_xyxy"]
-                        pad = 10
-                        crop = clean[
-                            max(0, y1 - pad): min(clean.shape[0], y2 + pad),
-                            max(0, x1 - pad): min(clean.shape[1], x2 + pad),
-                        ]
-                        st.image((crop * 255).astype('uint8'), caption="Sonar crop", use_container_width=True)
-                    except Exception:
-                        st.caption("(crop unavailable)")
-                    st.metric("Sonar-heuristic confidence", f"{d['confidence']:.1f}")
-                    st.metric("Model prob", f"{d['mean_prob']:.3f}")
-                    st.caption(f"Lat {d['lat']:.6f} | Lon {d['lon']:.6f}")
 
-                with col_form:
-                    cur_action_idx = _action_idx(det_id)
-                    action_opts = ["confirm", "reject", "uncertain", "annotate"]
-                    radio_opts = action_opts + ["(no review)"]
-                    radio_idx = cur_action_idx if cur_action_idx is not None else len(action_opts)
-                    chosen_action = st.radio(
-                        "Action",
-                        radio_opts,
-                        index=radio_idx,
-                        key=f"action_{run_id}_{det_id}",
-                        horizontal=True,
-                    )
-                    chosen_cat = st.selectbox(
-                        "Category",
-                        cat_labels,
-                        index=_cat_idx(det_id),
-                        key=f"cat_{run_id}_{det_id}",
-                    )
-                    chosen_note = st.text_area(
-                        "Note (optional)",
-                        value=rev.get("note") or "",
-                        key=f"note_{run_id}_{det_id}",
-                        max_chars=500,
-                    )
-                    b_save, b_clear = st.columns(2)
-                    if b_save.button("Save", key=f"save_{run_id}_{det_id}"):
-                        if chosen_action != "(no review)":
-                            upsert_review(
-                                conn, run_id, det_id,
-                                chosen_action,
-                                cat_keys[cat_labels.index(chosen_cat)],
-                                chosen_note or None,
-                            )
-                            st.rerun()
-                    if b_clear.button("Clear", key=f"clear_{run_id}_{det_id}"):
-                        delete_review(conn, run_id, det_id)
+# ----------------------------------------------------------------
+# REPORT (Phase 10)
+# ----------------------------------------------------------------
+elif cur_nav == "report":
+    st.markdown("## Mission Report")
+    if not file_bytes or json_path is None:
+        st.warning("No survey loaded — start a survey first.")
+        if st.button("Go to Survey", key="rep_to_survey", type="primary"):
+            st.session_state["nav"] = "survey"
+            st.rerun()
+    else:
+        rc = _review_counts()
+        st.markdown(f"""
+| Metric | Value |
+|--------|-------|
+| Survey file | {name} |
+| Run ID | `{run_id}` |
+| Anomalies detected | {len(geod)} |
+| Reviewed | {rc['reviewed']} |
+| Confirmed | {rc['confirmed']} |
+| Rejected | {rc['rejected']} |
+| Uncertain / Annotated | {rc['uncertain']} |
+| High-confidence (≥60) | {rc['high_conf']} |
+| Inference time | {_t_infer_s:.2f}s |
+        """)
+
+        try:
+            pdf_bytes = build_mission_pdf(
+                name=name,
+                run_id=run_id,
+                geod=geod,
+                reviews=reviews,
+                rc=rc,
+                t_infer=_t_infer_s,
+                clean=clean,
+            )
+            pdf_ok = True
+            pdf_err_msg = None
+        except Exception as _pdf_err:
+            pdf_ok = False
+            pdf_bytes = None
+            pdf_err_msg = f"{type(_pdf_err).__name__}: {_pdf_err}"
+
+        cdl, cdr, cdpdf = st.columns(3)
+        cdl.download_button("Download JSON", json_path.read_bytes(), "survey_report.json", "application/json")
+        cdr.download_button("Download CSV", csv_path.read_bytes(), "survey_report.csv", "text/csv")
+        if pdf_ok:
+            cdpdf.download_button("Download PDF Report", pdf_bytes, "survey_report.pdf", "application/pdf")
+        else:
+            cdpdf.error(f"Report generation failed: {pdf_err_msg}")
+            st.error(f"Report generation failed: {pdf_err_msg}")
+        st.markdown("")
+        if st.button("← Back to Summary", key="rep_back_sum", type="primary"):
+            st.session_state["nav"] = "review"
+            st.rerun()
+
+
+# ----------------------------------------------------------------
+# SYSTEM & VALIDATION (Phase 8)
+# ----------------------------------------------------------------
+elif cur_nav == "system":
+    st.markdown("## System & Validation")
+    st.markdown('<div class="info-box">All numbers on this page are from measured evaluations. Sources are cited by file. No estimated or fabricated values.</div>', unsafe_allow_html=True)
+
+    # --- Model architecture ---
+    st.markdown("### Model Architecture")
+    col_a, col_b = st.columns(2)
+    col_a.markdown("""
+**Architecture:** U-Net with ResNet34 encoder
+**Attention:** None (no scSE, no CBAM)
+**Input:** 512×512 greyscale tiles (tiled with 64px overlap, ramp blending)
+**Output:** Per-pixel sigmoid probability map
+**Post-processing:** Connected-component extraction, heuristic confidence scoring
+**Checkpoint:** `best_model_v1_iou0.71.pth` (epoch 55/60)
+    """)
+    col_b.markdown("""
+**Dataset:** AI4Shipwrecks — NOAA / Thunder Bay NMSA
+**Images:** 286 (28 wreck sites, site-based split)
+**License:** CC-BY-4.0
+**Sensor:** Iver3 AUV, EdgeTech 2205 SSS, ~132 kHz
+**Split:** 12 train sites, 13 held-out test sites — zero overlap
+    """)
+
+    st.divider()
+
+    # --- Validation results ---
+    st.markdown("### Validation Results")
+    st.markdown("""
+| Split | IoU | Dice | Notes |
+|-------|-----|------|-------|
+| Validation (in-distribution) | 0.713 | 0.833 | 12 training sites, best epoch |
+| **Test (primary metric)** | **0.427** | **0.598** | **13 held-out sites, never seen in training** |
+
+**Why they differ:** Validation IoU is measured on the same sites used during training (in-distribution). Test IoU is measured on 13 entirely separate sites — the primary, honest metric. The gap (0.713 → 0.427) reflects genuine generalisation difficulty across unseen survey sites, typical for a 286-image single-domain dataset.
+
+SOTA context: published sonar ATR benchmarks report Dice/IoU 0.55–0.77. Test IoU 0.427 is below this range, consistent with the dataset size and hard site-based hold-out.
+    """)
+
+    st.divider()
+
+    # --- Inference latency ---
+    st.markdown("### Inference Latency")
+    st.markdown("""
+Hardware: Intel Core i7-12700H, NVIDIA RTX 4050 Laptop GPU, CUDA 12.1, PyTorch 2.5.1.
+Measured on 10 test images (2476×1728 px), seed=42. Timings cover preprocess + tiled inference + post-processing. Excludes file I/O and report write.
+
+| Backend | Mean | Std | Min | Max | Model size |
+|---------|------|-----|-----|-----|------------|
+| PyTorch FP32 / CPU | 4.29 s | 1.75 s | 1.53 s | 6.23 s | — |
+| PyTorch FP32 / GPU (RTX 4050) | **0.37 s** | 0.16 s | 0.13 s | 0.54 s | — |
+| ONNX FP32 / CPU | 3.08 s | 1.52 s | 0.89 s | 5.27 s | 97.7 MB |
+| ONNX INT8 / CPU | 5.26 s | 1.84 s | 2.09 s | 7.06 s | 24.6 MB |
+
+**ONNX INT8 is slower than FP32** on this CPU — dynamic quantisation overhead outweighs the size benefit at this tile count. ONNX INT8 also has numerical accuracy issues (max pixel diff 0.6497 vs. PyTorch). **Do not use INT8 for inference.** "Real-time" is not claimed.
+    """)
+
+    st.divider()
+
+    # --- Robustness ---
+    st.markdown("### Robustness Under Sonar Perturbations")
+    st.markdown("""
+Measured on 120 test images, seed=42. Each image run clean then with a single perturbation.
+Baseline (clean): mean IoU = 0.058, mean detections/image = 3.4.
+
+| Perturbation | Perturbed IoU | Δ IoU | Det/image (perturbed) | Notes |
+|---|---|---|---|---|
+| Speckle noise | 0.013 | **−78%** | 4.7 | Largest IoU drop; boundary degradation |
+| Synthetic shadow | 0.058 | negligible | 3.0 | Model is shadow-aware; minimal effect |
+| Radial distortion | 0.053 | −10% | 4.5 | Mild geometric warp |
+| Heave/pitch/roll | 0.033 | **−44%** | **10.1** | **3× false-positive spike from shear artefacts** |
+
+No robustness threshold is certified — these are characterisation numbers, not pass/fail guarantees.
+Full data: `pipeline/robustness_results.json`
+    """)
+
+    st.divider()
+
+    # --- Cross-domain ---
+    st.markdown("### Cross-Domain Generalisation Check")
+    st.markdown('<div class="warn-box"><b>Framing (mandatory):</b> This used a subset of the Santos 2024 AUV SSS dataset as a cross-domain generalization check for non-mine anomalous objects. It is not a mine-detection evaluation. The word "mine" does not appear in any SonarEye output.</div>', unsafe_allow_html=True)
+    st.markdown("""
+Eval dataset: Santos et al. 2024, 1,170 images, AUV SSS, non-mine anomalous-object subset.
+Metric: IoU-of-boxes (bbox from mask components vs. YOLO GT bbox) — not comparable to pixel-level test IoU.
+
+| Class | GT objects | Mean IoU-of-boxes | Det@0.5 |
+|-------|-----------|-------------------|--------|
+| Man-made anomalous objects (MILCO) | 437 | 0.007 | **0.0%** |
+| Natural seafloor features (NOMBO) | 231 | 0.037 | **2.2%** |
+| Background frames | 866 | — | **28.5% FP rate** |
+
+**Finding:** Shipwreck-trained features do not transfer to this AUV SSS domain. Frequency mismatch (~132 kHz vs. 900–1800 kHz), structurally dissimilar targets, different shadow geometry, and water-type differences all contribute. This result is expected and informative — it characterises domain specificity, not a defect.
+    """)
+
+    st.divider()
+
+    # --- Failure analysis ---
+    st.markdown("### Qualitative Failure Analysis")
+    st.markdown("Source: `docs/qualitative_examples.md` — held-out test set and robustness harness.")
+
+    cases = [
+        ("TP-1", "True positive",  "~0.75", "~74", "Anchor chain scatter — high contrast, well-defined shadow. Best-case conditions."),
+        ("TP-2", "True positive",  "~0.48", "~58", "Partial hull — mask boundary drifts at far edge merged with reverberation band. Typical median-difficulty case."),
+        ("TP-3", "True positive",  "~0.65", "~79", "Boiler/machinery mass — strong shadow drives shadow sub-score. Near-circular, high solidity."),
+        ("HARD-1", "Ambiguous",    "~0.22", "~49", "Reef-wreck overlap — acoustic impedance of reef and hull similar at 132 kHz. Model cannot distinguish."),
+        ("HARD-2", "Ambiguous",    "~0.18", "~31", "Small distal fragment (~30×20px) — near-threshold instability. Score correctly places it near likely_rock_or_shadow boundary (35.0)."),
+        ("FP-1",  "False positive", "N/A",  "~41–48", "Background frame, heave perturbation — shear creates bright-edge artefacts. Mechanism behind 3× FP spike."),
+        ("FN-1",  "False negative", "0 (miss)", "N/A", "Buried/sedimented hull — low contrast, under-represented in 286-image training set."),
+    ]
+    cols = st.columns([1, 1.5, 1, 1, 4])
+    for h, text in zip(["ID", "Category", "Tile IoU", "Score", "Description"], cols):
+        h_col = text
+        h_col.markdown(f"**{h}**")
+    for row in cases:
+        c1, c2, c3, c4, c5 = st.columns([1, 1.5, 1, 1, 4])
+        c1.markdown(f"`{row[0]}`")
+        c2.markdown(row[1])
+        c3.markdown(row[2])
+        c4.markdown(row[3])
+        c5.markdown(row[4])
+
+    st.divider()
+
+    # --- Dominant failure mode ---
+    st.markdown("### Convergent Failure-Mode Finding")
+    st.markdown("""
+Four independent measurements converge on the same finding:
+
+> **The model fires on unfamiliar sonar texture rather than discriminating structural shape.**
+
+Evidence:
+1. **Cross-domain FP rate 28.5%** on background frames (Santos 2024) — the model fires on unfamiliar SSS texture with no target present
+2. **Heave/pitch/roll +196% FP spike** (3.4 → 10.1 det/image) — shear artefacts that resemble high-contrast targets trigger indiscriminate firing
+3. **Synthetic net-patch activation 86.7%** (26/30 patches) — the model fires on synthetic elongated mesh textures that share low-level statistics with shipwreck debris fields (illustrative, unvalidated, synthetic-only exploration — not a demonstrated net-detection capability)
+4. **Reef-wreck overlap HARD-1** — the model cannot distinguish geological from anthropogenic backscatter when their acoustic profiles overlap
+
+This failure mode is structurally tied to the training set: 286 images of a single wreck-type domain, no hard-negative mining, no sonar-specific augmentation beyond the four stochastic perturbations in `synthaug.py`.
+    """)
+
+    st.divider()
+
+    # --- Scope & limitations ---
+    st.markdown("### Scope & Limitations")
+    st.markdown("""
+| Target class | Status | Reason |
+|---|---|---|
+| Shipwrecks (structural debris, hull plating, anchors, machinery) | Trained & evaluated | AI4Shipwrecks dataset, 28 sites |
+| Pipes / cylinders | Not included | Sidescantoolbox GPL-3.0 licence conflict — cannot redistribute modified training data |
+| Ghost / entangled fishing nets | Not included | No public labeled sonar dataset exists anywhere for this class |
+| Generic seabed debris | Unproven | Not specifically trained or evaluated |
+
+**Confidence score:** Heuristic composite (model prob × 0.6 + geometry × 0.28 + shadow × 0.12). Weights are hand-tuned — not learned. No calibration applied. Not a probability.
+
+**In-domain false positive rate:** Not measured at detection level — pixel-level IoU does not measure per-frame detection alarms on non-wreck frames. Known gap.
+    """)
+
+    st.divider()
+
+    # --- Synthetic net exploration note ---
+    st.markdown("### Synthetic Net-Patch Exploration (Research Note)")
+    st.markdown('<div class="warn-box"><b>Framing (mandatory):</b> Illustrative, unvalidated, synthetic-only exploration — not a demonstrated capability. The model was trained exclusively on shipwreck sonar imagery. No ghost-net sonar data was used at any stage.</div>', unsafe_allow_html=True)
+    st.markdown("""
+Script: `pipeline/synthetic_net_exploration.py` | 30 synthetic patches, seed=7
+
+| Metric | Value |
+|--------|-------|
+| Patches with ≥1 detection | 26 / 30 (86.7%) |
+| Total model detections | 72 |
+| Mean detections / patch | 2.40 |
+
+The 86.7% activation rate does not indicate ghost-net detection accuracy. It reflects the same indiscriminate texture-firing behaviour documented in the cross-domain check and heave robustness result. Activated regions are broad (3–11% of patch area) and spatially coincident with net strands because the strands span most of the patch — not because the model traced strand geometry.
+    """)
+    st.markdown("")
+    if st.button("← Back to Overview", key="sys_to_ov", type="primary"):
+        st.session_state["nav"] = "overview"
+        st.rerun()
+
+elif cur_nav == "seq_review":
+    # ════════════════════════════════════════════════════════════════════════
+    # SEQUENTIAL REVIEW — one-detection-at-a-time guided flow
+    # State: review_idx (int) advances on save; completion screen at the end
+    # ════════════════════════════════════════════════════════════════════════
+    if not file_bytes or not geod:
+        st.warning("No survey loaded. Load a survey and go to Detection Queue first.")
+        if st.button("Back to Queue", key="sr_empty_back"):
+            st.session_state["nav"] = "detections"
+            st.rerun()
+    else:
+        _sr_total = len(geod)
+        _sr_rc = _review_counts()
+        _sr_n_done = _sr_rc["reviewed"]
+        st.session_state["_sr_done"] = _sr_n_done
+        st.session_state["_sr_total"] = _sr_total
+
+        # ── Progress bar ──────────────────────────────────────────────────────
+        _sr_pct = _sr_n_done / _sr_total if _sr_total > 0 else 1.0
+        _pb_col, _stat_col = st.columns([3, 1])
+        with _pb_col:
+            st.progress(_sr_pct, text=f"**{_sr_n_done} / {_sr_total} reviewed**")
+        with _stat_col:
+            st.markdown(
+                f"<div style='text-align:right;font-size:0.82rem;color:#8b949e;'>"
+                f"<span style='color:#3fb950;'>&#10004; {_sr_rc['confirmed']}</span>  "
+                f"<span style='color:#f85149;'>&#10006; {_sr_rc['rejected']}</span>  "
+                f"<span style='color:#d29922;'>? {_sr_rc['uncertain']}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+        # ── Completion screen ─────────────────────────────────────────────────
+        if _sr_n_done >= _sr_total and _sr_total > 0:
+            st.session_state["review_complete"] = True
+            st.markdown("## Review Complete")
+            st.markdown(f"All **{_sr_total}** detections reviewed.")
+            _cc1, _cc2, _cc3, _cc4 = st.columns(4)
+            _cc1.metric("Confirmed",  _sr_rc["confirmed"])
+            _cc2.metric("Rejected",   _sr_rc["rejected"])
+            _cc3.metric("Uncertain",  _sr_rc["uncertain"])
+            _cc4.metric("Total",      _sr_total)
+            st.divider()
+            _btn_a, _btn_b, _btn_back = st.columns([2, 2, 1])
+            with _btn_a:
+                if st.button("View on Map", key="sr_to_review",
+                             type="primary", use_container_width=True):
+                    st.session_state["nav"] = "map"
+                    st.rerun()
+            with _btn_b:
+                _first_conf = next(
+                    (d["id"] for d in geod
+                     if reviews.get(d["id"], {}).get("action") == "confirm"),
+                    geod[0]["id"],
+                )
+                if st.button("Investigate Anomalies", key="sr_to_detail",
+                             use_container_width=True):
+                    st.session_state["selected_det"] = _first_conf
+                    st.session_state["detail_return"] = "map"
+                    st.session_state["nav"] = "detail"
+                    st.rerun()
+            with _btn_back:
+                if st.button("Back to Queue", key="sr_done_back"):
+                    st.session_state["nav"] = "detections"
+                    st.rerun()
+
+        else:
+            # ── Single-detection review panel ─────────────────────────────────
+            # Build ordered sequence: unreviewed first, then reviewed
+            _sr_order = (
+                [d["id"] for d in geod if d["id"] not in reviews] +
+                [d["id"] for d in geod if d["id"] in reviews]
+            )
+            # Track by det_id so position survives _sr_order recomputation after saves
+            _target_id = st.session_state.get("review_det_id")
+            if _target_id in _sr_order:
+                _ridx = _sr_order.index(_target_id)
+            else:
+                _ridx = max(0, min(
+                    st.session_state.get("review_idx", 0),
+                    len(_sr_order) - 1,
+                ))
+            st.session_state["review_idx"] = _ridx
+            _det_id = _sr_order[_ridx]
+            st.session_state["review_det_id"] = _det_id
+            _det = next((d for d in geod if d["id"] == _det_id), geod[_ridx])
+
+            # Header row: position + prev/next nav
+            _is_reviewed = _det_id in reviews
+            _prev_action = reviews.get(_det_id, {}).get("action", "")
+            _status_badge = {
+                "confirm":   "<span style='color:#3fb950;'>&#10004; Previously confirmed</span>",
+                "reject":    "<span style='color:#f85149;'>&#10006; Previously rejected</span>",
+                "uncertain": "<span style='color:#d29922;'>? Previously uncertain</span>",
+                "annotate":  "<span style='color:#d29922;'>&#9998; Previously annotated</span>",
+            }.get(_prev_action, "<span style='color:#8b949e;'>Unreviewed</span>")
+
+            _hdr, _nav_btns = st.columns([3, 2])
+            with _hdr:
+                st.markdown(
+                    f"### Detection {_ridx + 1} of {_sr_total}  "
+                    f"<span style='font-size:0.88rem;font-weight:400;'>{_status_badge}</span>",
+                    unsafe_allow_html=True,
+                )
+            with _nav_btns:
+                _pc, _nc = st.columns(2)
+                with _pc:
+                    if st.button("&#8592; Prev", key="sr_prev",
+                                 disabled=(_ridx == 0),
+                                 use_container_width=True):
+                        st.session_state["review_idx"] = _ridx - 1
+                        st.session_state["review_det_id"] = _sr_order[_ridx - 1]
                         st.rerun()
+                with _nc:
+                    if st.button("Next &#8594;", key="sr_next",
+                                 disabled=(_ridx >= len(_sr_order) - 1),
+                                 use_container_width=True):
+                        st.session_state["review_idx"] = _ridx + 1
+                        st.session_state["review_det_id"] = _sr_order[_ridx + 1]
+                        st.rerun()
+
+            # Detection summary metrics
+            _conf   = _det.get("confidence", 0.0)
+            _lat    = _det.get("lat") or 0.0
+            _lon    = _det.get("lon") or 0.0
+            _ai_cls = "Possible natural feature" if _det.get("likely_rock_or_shadow") else "Artificial anomaly"
+            _mc1, _mc2, _mc3 = st.columns(3)
+            _mc1.metric("Composite score", f"{_conf:.1f}")
+            _mc2.metric("AI classification", _ai_cls)
+            _mc3.metric("Location", f"{_lat:.5f}, {_lon:.5f}")
+            if (st.session_state.get("survey_cfg") or {}).get("source") == "sample":
+                st.caption("Illustrative location — approximate survey-area coordinates only. No real survey navigation data for this sample.")
+
+            # Sonar crop evidence
+            _bbox = _det.get("bbox_xyxy")
+            if _bbox and clean is not None:
+                try:
+                    _x1, _y1, _x2, _y2 = _bbox
+                    _pad = 15
+                    _cy0 = max(0, _y1 - _pad); _cy1 = min(clean.shape[0], _y2 + _pad)
+                    _cx0 = max(0, _x1 - _pad); _cx1 = min(clean.shape[1], _x2 + _pad)
+                    _crop = clean[_cy0:_cy1, _cx0:_cx1]
+                    if _crop.size > 0:
+                        st.image(
+                            (np.clip(_crop, 0, 1) * 255).astype(np.uint8),
+                            caption="Sonar crop (enhanced)",
+                            use_container_width=False,
+                            width=300,
+                        )
+                except Exception:
+                    pass
+
+            st.divider()
+
+            # ── Review form ───────────────────────────────────────────────────
+            st.markdown("**Record your assessment:**")
+            _existing = reviews.get(_det_id, {})
+            _act_opts  = ["confirm", "reject", "uncertain", "annotate"]
+            _def_act   = _act_opts.index(_existing["action"]) if _existing.get("action") in _act_opts else 2
+            _sr_action = st.radio(
+                "Decision",
+                options=_act_opts,
+                format_func=lambda x: {
+                    "confirm":   "Confirm — treat as verified anomaly",
+                    "reject":    "Reject — likely natural feature or artifact",
+                    "uncertain": "Uncertain — needs further investigation",
+                    "annotate":  "Annotate — add notes without a verdict",
+                }[x],
+                index=_def_act,
+                horizontal=True,
+                key=f"sr_action_{run_id}_{_det_id}",
+            )
+            _sr_cats = load_categories()
+            _sr_cat_keys = list(_sr_cats.keys())
+            _existing_cat = _existing.get("category", _sr_cat_keys[0])
+            _sr_cat_idx = _sr_cat_keys.index(_existing_cat) if _existing_cat in _sr_cat_keys else 0
+            _sr_category = st.selectbox(
+                "Category",
+                options=_sr_cat_keys,
+                format_func=lambda k: f"{k} — {_sr_cats[k]}",
+                index=_sr_cat_idx,
+                key=f"sr_cat_{run_id}_{_det_id}",
+            )
+            _sr_note = st.text_area(
+                "Notes (optional)",
+                value=_existing.get("note") or "",
+                max_chars=500,
+                placeholder="Observations, uncertainties, follow-up needed…",
+                key=f"sr_note_{run_id}_{_det_id}",
+            )
+
+            _is_last = (_ridx >= len(_sr_order) - 1)
+            _save_label = {
+                "confirm":   "Confirm & Next",
+                "reject":    "Reject & Next",
+                "uncertain": "Mark Uncertain & Next",
+                "annotate":  "Annotate & Next",
+            }.get(_sr_action, "Save & Next")
+            if _is_last:
+                _save_label = _save_label.replace(" & Next", " (last)")
+
+            _sv_col, _sk_col, _ex_col = st.columns([2, 1, 1])
+            with _sv_col:
+                if st.button(_save_label,
+                             key=f"sr_save_{run_id}_{_det_id}",
+                             type="primary",
+                             use_container_width=True):
+                    upsert_review(conn, run_id, _det_id, _sr_action, _sr_category, _sr_note)
+                    if not _is_last:
+                        # Advance to next unreviewed, skipping already-reviewed
+                        _updated_reviews = get_reviews_for_run(conn, run_id)
+                        _next_i = next(
+                            (i for i, did in enumerate(_sr_order)
+                             if i > _ridx and did not in _updated_reviews),
+                            _ridx + 1 if _ridx + 1 < len(_sr_order) else _ridx,
+                        )
+                        st.session_state["review_idx"] = _next_i
+                        st.session_state["review_det_id"] = _sr_order[_next_i]
+                    st.rerun()
+            with _sk_col:
+                if st.button("Skip", key=f"sr_skip_{run_id}_{_det_id}",
+                             disabled=_is_last):
+                    st.session_state["review_idx"] = min(_ridx + 1, len(_sr_order) - 1)
+                    st.session_state["review_det_id"] = _sr_order[st.session_state["review_idx"]]
+                    st.rerun()
+            with _ex_col:
+                if st.button("Exit Review", key="sr_exit"):
+                    st.session_state["nav"] = "detections"
+                    st.rerun()
+
+
 else:
-    st.info("Upload a sonar image or select a sample to begin.")
+    st.info("Select a section from the sidebar.")

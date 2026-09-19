@@ -6,8 +6,11 @@ import pytest
 from review_store import (
     VALID_ACTIONS,
     delete_review,
+    delete_sample_run,
     get_reviews_for_run,
+    get_run_source,
     init_db,
+    purge_old_sample_runs,
     register_run,
     upsert_review,
 )
@@ -89,4 +92,55 @@ def test_long_note_truncated(tmp_path):
     upsert_review(conn, "run1", 0, "annotate", note=long_note)
     rev = get_reviews_for_run(conn, "run1")
     assert len(rev[0]["note"]) == 500
+    conn.close()
+
+
+def test_delete_sample_run_only_when_tagged_sample(tmp_path):
+    conn, _ = _make_db(tmp_path)
+    register_run(conn, "demo1", "Corsair_01.png", 1, source="sample")
+    upsert_review(conn, "demo1", 0, "confirm", note="demo")
+    register_run(conn, "real1", "field.png", 1, source="upload")
+    upsert_review(conn, "real1", 0, "reject", note="keep me")
+
+    assert delete_sample_run(conn, "demo1") is True
+    assert get_reviews_for_run(conn, "demo1") == {}
+    assert get_run_source(conn, "demo1") is None
+
+    assert delete_sample_run(conn, "real1") is False
+    assert get_reviews_for_run(conn, "real1")[0]["action"] == "reject"
+    assert get_run_source(conn, "real1") == "upload"
+    conn.close()
+
+
+def test_untagged_legacy_run_defaults_to_upload_and_is_not_deleted(tmp_path):
+    conn, db_path = _make_db(tmp_path)
+    conn.execute(
+        "INSERT INTO runs (run_id, created_at, image_name, n_detections) VALUES (?,?,?,?)",
+        ("legacy", "2020-01-01T00:00:00Z", "old.png", 1),
+    )
+    conn.commit()
+    conn.close()
+    conn = init_db(db_path)
+    assert get_run_source(conn, "legacy") == "upload"
+    assert delete_sample_run(conn, "legacy") is False
+    conn.close()
+
+
+def test_purge_old_sample_runs_spares_uploads_and_fresh_samples(tmp_path):
+    conn, _ = _make_db(tmp_path)
+    conn.execute(
+        "INSERT INTO runs (run_id, created_at, image_name, n_detections, source) VALUES (?,?,?,?,?)",
+        ("old_s", "2020-01-01T00:00:00Z", "a.png", 1, "sample"),
+    )
+    conn.execute(
+        "INSERT INTO runs (run_id, created_at, image_name, n_detections, source) VALUES (?,?,?,?,?)",
+        ("old_u", "2020-01-01T00:00:00Z", "b.png", 1, "upload"),
+    )
+    register_run(conn, "new_s", "c.png", 1, source="sample")
+    conn.commit()
+    n = purge_old_sample_runs(conn, max_age_hours=24, keep_run_id="new_s")
+    assert n == 1
+    assert get_run_source(conn, "old_s") is None
+    assert get_run_source(conn, "old_u") == "upload"
+    assert get_run_source(conn, "new_s") == "sample"
     conn.close()
