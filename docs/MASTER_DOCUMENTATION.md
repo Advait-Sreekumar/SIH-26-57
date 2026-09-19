@@ -244,16 +244,20 @@ Measured on GT-negative test frames from AI4Shipwrecks:
 
 | Metric | Value |
 |--------|-------|
-| GT-negative frames total | 114 |
-| Excluded (suspected annotation gaps) | 9 |
-| Adjusted GT-negative count | 105 |
-| Frames with FP detections | 8 |
-| **FP rate (frame-level, IoU 0.5)** | **7.9%** |
-| FP rate before gap exclusion | 13.5% |
+| GT-negative frames (all 13 test sites) | 46 |
+| Frames with any detection | 24 |
+| **FP rate (frame-level)** | **52.2%** |
+| Mean detections per GT-negative frame | 1.57 |
+| Excluding Monohansett_01 outlier (28 det, 9004×1728 px) | 22.4% (10/44 frames) |
 
-FP categories (8 frames): strong specular reflections / sonar interference artefacts
-(3 frames), faint structured returns near rocky outcrops (3 frames), annotation gap
-target present but unannotated (2 frames).
+Source: `pipeline/fp_rate_results.json`.
+
+The 52.2% rate is the authoritative measured result on the 13 held-out test sites.
+The Monohansett_01 image is an unusually large panoramic frame (9004×1728 px) that
+alone accounts for 28 detections; excluding it gives 22.4%. Both figures are reported;
+neither is suppressed. The model fires frequently on GT-negative sonar — specular
+reflections, hard-bottom substrate, and structured sediment returns — and this is a
+known limitation at the current threshold setting.
 
 ### ONNX Export Validation
 
@@ -307,10 +311,20 @@ The Streamlit app has two distinct latency regimes:
 **Cold start** (first run after Python process launch):  
 `torch` import + model weight load + first inference.  
 Dominated by PyTorch module import and `best_model_v1_iou0.71.pth` weight load.
-No single measured cold-start total is stored in the source files; `pipeline/perf_profile.py`
-provides a harness to measure it on the target machine. Expected to be substantially
-higher than inference latency alone (4.29 s CPU / 0.37 s GPU) due to PyTorch import
-and 97.7 MB weight load time.
+Measured via `pipeline/perf_profile.py` on Intel Core i7-12700H + RTX 4050 Laptop GPU,
+16 GB RAM (source: `pipeline/perf_profile_results.json`):
+
+| Stage | Time |
+|-------|------|
+| `torch` import | 1,857 ms |
+| Pipeline imports (numpy, PIL, infer, confidence, geotag, app) | 4,017 ms |
+| Model weight load (`SonarDetector` init) | 345 ms |
+| Image load + convert to numpy | 47 ms |
+| First (cold) inference | 891 ms |
+| **Cold-start total (stages 1–5)** | **7,157 ms (~7.2 s)** |
+
+The dominant cost is PyTorch import (~1.9 s) + pipeline imports (~4.0 s), not inference.
+Once the process is live, subsequent warm inference runs average **686 ms** on this hardware.
 
 **Warm start** (subsequent Streamlit rerenders, same process):  
 Model is already loaded and served via `@st.cache_resource`. Inference result is
@@ -432,7 +446,7 @@ Four independent stress tests converge on a single characterised failure:
 
 1. **Cross-domain check (§7):** 28.5% FP rate on unfamiliar sonar backgrounds.
 2. **Heave/pitch/roll robustness (+196% FP):** Fires on shear-induced edge artefacts.
-3. **In-domain FP rate (7.9%):** Fires on specular reflections and rocky outcrops.
+3. **In-domain FP rate (52.2%, or 22.4% excl. outlier):** Fires on specular reflections and rocky outcrops.
 4. **Synthetic net exploration:** 86.7% of synthetic patches triggered detections —
    indistinguishable from the cross-domain FP rate on real backgrounds.
 
@@ -670,7 +684,7 @@ results cited above.
 | Q4 | Inference latency; real-time / edge claim | 0.37 s GPU / 4.29 s CPU; real-time not claimed |
 | Q5 | What hazard classes can be detected | Shipwrecks only; pipes/nets/cylinders are documented non-deliverables |
 | Q5a | Ghost net synthetic exploration | 86.7% fire rate on synthetic patches; illustrative only, not capability |
-| Q6 | In-domain FP rate | 7.9% frame-level at IoU 0.5 after annotation-gap exclusion |
+| Q6 | In-domain FP rate | 52.2% frame-level (24/46 GT-negative frames); 22.4% excluding Monohansett_01 outlier. Source: `pipeline/fp_rate_results.json` |
 | Q7 | Geotagging accuracy | Derived from operator-supplied nav; sample = illustrative only |
 | Q8 | PDF report | Functional, reportlab-based; not a production document system |
 | Q9 | Real survey ingestion | Yes — XTF upload, `xtf_io.py`, tested on `test_survey.xtf` |

@@ -1,0 +1,63 @@
+{
+  "tool": "perf_profile.py",
+  "hardware": "Intel Core i7-12700H, RTX 4050 Laptop GPU, CUDA 12.1, 16 GB RAM",
+  "image": "Artificial_Reef_01.png",
+  "image_shape": [
+    2476,
+    1728
+  ],
+  "cold_start_total_ms": 7120.2,
+  "warm_inference_mean_ms": 685.6,
+  "stages": [
+    {
+      "stage": "torch import",
+      "ms": 1819.0,
+      "notes": ""
+    },
+    {
+      "stage": "pipeline imports (numpy, PIL, infer, confidence, geotag, pdf_export)",
+      "ms": 4017.4,
+      "notes": ""
+    },
+    {
+      "stage": "model weight load (SonarDetector init)",
+      "ms": 345.2,
+      "notes": ""
+    },
+    {
+      "stage": "image load + convert to numpy (disk read + PIL decode)",
+      "ms": 47.4,
+      "notes": ""
+    },
+    {
+      "stage": "first inference (cold: preprocess+tile+sigmoid+post)",
+      "ms": 891.2,
+      "notes": "2 detections"
+    },
+    {
+      "stage": "warm inference mean (3 runs)",
+      "ms": 685.6,
+      "notes": "runs: [691.3, 680.6, 684.9] ms"
+    },
+    {
+      "stage": "confidence scoring (score_detections)",
+      "ms": 130.6,
+      "notes": "2 detections"
+    },
+    {
+      "stage": "geotagging (PixelGeoMapper.geotag)",
+      "ms": 0.1,
+      "notes": "2 detections"
+    },
+    {
+      "stage": "PDF first render (build_mission_pdf)",
+      "ms": 2045.7,
+      "notes": "1553 KB"
+    },
+    {
+      "stage": "PDF second render (no cache; baseline for @st.cache_resource benefit)",
+      "ms": 373.3,
+      "notes": "1553 KB"
+    }
+  ]
+}

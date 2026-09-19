@@ -2,6 +2,10 @@
 
 Run from repo root or pipeline/:  python test_flow_integrity.py
 Reports real widget/session outcomes for each step — not predictions.
+
+NOTE: This file is intentionally NOT a pytest test module. It contains no
+`test_*` functions and collects 0 items under pytest — that is expected,
+not a gap. Run it directly with `python test_flow_integrity.py`.
 """
 from __future__ import annotations
 

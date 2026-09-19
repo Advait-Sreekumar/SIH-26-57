@@ -158,7 +158,7 @@ Tests in `test_pipeline.py` found two real production bugs, now fixed:
 - No cross-domain generalisation — directly measured and confirmed: model does not transfer across SSS domains
 - No mine-detection capability — the Santos 2024 dataset was used only to measure cross-domain failure, framed throughout as "cross-domain generalization check (non-mine anomalous-object subset)"
 - No robustness claim — perturbation deltas measured (Section 6) but no robustness threshold is certified
-- No in-domain per-frame FP rate — pixel-level IoU does not measure detection-level false alarms on non-wreck frames
+- In-domain per-frame FP rate measured: 52.2% (24/46 GT-negative frames); 22.4% excl. Monohansett_01 outlier. Source: `pipeline/fp_rate_results.json`
 
 ---
 
