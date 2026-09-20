@@ -139,6 +139,8 @@ Two entry points:
 - **XTF path** (operational): `xtf_io.py` reads per-ping navigation and renders a waterfall
   PNG from the ping stack, then same path downstream.
 
+![System architecture data-flow diagram](docs/diagrams/01_system_architecture.png)
+
 ### Confidence Score Formula
 
 The 0–100 sonar-heuristic confidence score is a composite of model output and acoustic
@@ -168,6 +170,8 @@ Weights (0.6/0.4, 0.7/0.3, 0.40/0.25/0.35) are **hand-tuned, not learned**. No P
 scaling or isotonic regression has been applied. The score is not a calibrated probability.
 It is useful as a within-survey ranking signal only. The `likely_rock_or_shadow` flag is
 set when score < 35.0 (threshold set by inspection, not empirical optimisation).
+
+![Confidence score formula breakdown](docs/diagrams/02_confidence_score_breakdown.png)
 
 ### Geotagging
 
@@ -237,6 +241,8 @@ All results from `docs/evaluation_report.md`. Evaluated on 13 held-out test site
 Validation metrics are on the training-distribution validation fold, not the held-out
 test set. Val >> Test is expected (nearby sites seen in training). Test IoU is the
 authoritative number.
+
+![Evaluation summary: IoU and robustness perturbation deltas](docs/diagrams/03_evaluation_charts.png)
 
 ### In-Domain False-Positive Rate
 
@@ -631,6 +637,8 @@ The caption logic is covered by 4 of the 8 geotag regression tests.
 
 All three non-shipwreck classes were investigated. Each has a specific, documented
 blocker. Source: `docs/phase1_5_class_expansion_feasibility.md`.
+
+![Class expansion investigation outcomes](docs/diagrams/04_class_expansion_decisions.png)
 
 #### Underwater Pipelines / Cylinders
 
