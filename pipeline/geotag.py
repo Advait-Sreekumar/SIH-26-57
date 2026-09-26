@@ -56,6 +56,11 @@ class PixelGeoMapper:
         th = np.radians(meta.heading_deg)
         self.east = np.array([np.sin(th), np.cos(th)])
         self.north = np.array([np.cos(th), -np.sin(th)])
+        # A detection can be at most one swath-range across-track and one
+        # along-track length away from the origin, plus a generous margin. A
+        # coordinate beyond that is not physically consistent with this survey
+        # geometry, so we flag it rather than silently trusting it (spec PART 3).
+        self.max_offset_m = float(np.hypot(meta.range_m, meta.along_track_m)) * 1.5 + 150.0
 
     def pixel_to_local_m(self, x_px, y_px):
         across = (x_px - self.w / 2.0) * self.m_per_px_across
@@ -72,12 +77,32 @@ class PixelGeoMapper:
         lon = self.meta.lon0 + e / (M_PER_DEG_LAT * np.cos(np.radians(self.meta.lat0)))
         return float(lat), float(lon)
 
+    def _validate(self, lat, lon):
+        """Sanity-check a computed coordinate (spec PART 3). Never moves it."""
+        if not (np.isfinite(lat) and np.isfinite(lon)):
+            return False, "non-finite coordinate"
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            return False, "coordinate outside valid lat/lon range"
+        dn = (lat - self.meta.lat0) * M_PER_DEG_LAT
+        de = (lon - self.meta.lon0) * (M_PER_DEG_LAT * np.cos(np.radians(self.meta.lat0)))
+        off = float(np.hypot(dn, de))
+        if off > self.max_offset_m:
+            return False, f"coordinate {off/1000:.1f} km from survey origin (beyond swath geometry)"
+        return True, ""
+
     def geotag(self, detections):
         out = []
         for d in detections:
             cx, cy = d["centroid_px"]
             lat, lon = self.pixel_to_latlon(cx, cy)
-            out.append({**d, "lat": round(lat, 7), "lon": round(lon, 7)})
+            ok, reason = self._validate(lat, lon)
+            if ok:
+                out.append({**d, "lat": round(lat, 7), "lon": round(lon, 7),
+                            "geo_valid": True, "geo_reason": ""})
+            else:
+                # Do NOT silently keep an implausible coordinate (spec PART 3/4).
+                out.append({**d, "lat": None, "lon": None,
+                            "geo_valid": False, "geo_reason": reason})
         return out
 
 

@@ -63,3 +63,10 @@ AI4Shipwrecks/AI4Shipwrecks/extras/
 # Phase 5 review workflow (per-session data)
 pipeline/review_store.db
 pipeline/categories.yaml
+
+# Claude Code local session/config
+.claude/
+
+# Local scratch/debug files
+pipeline/_debug_pdf.py
+pipeline/_grep.txt

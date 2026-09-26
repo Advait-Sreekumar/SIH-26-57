@@ -22,6 +22,7 @@ except ImportError:
 from categories import load_categories
 from confidence import score_detections
 from geotag import PixelGeoMapper, SonarMeta, save_report
+from geolocate import NavTrackGeoMapper, coordinate_units_plausible
 from infer import SonarDetector
 from preprocess import preprocess
 from review_store import (
@@ -75,6 +76,15 @@ html, body, [data-testid="stAppViewContainer"] {
     background-color: var(--bg) !important;
     color: var(--text) !important;
 }
+/* Reclaim Streamlit's very large default block padding (6rem top / 10rem
+   bottom). On a standard 1366x768 demo laptop — especially at 125% OS
+   display scaling — that dead space forces the operator to zoom the browser
+   out to ~90% to see a page without scrolling. Tightening it lets the app
+   render cleanly at 100% zoom, the actual demo condition. */
+[data-testid="stMainBlockContainer"], .block-container {
+    padding-top: 2.2rem !important;
+    padding-bottom: 3rem !important;
+}
 [data-testid="stSidebar"] {
     background-color: var(--surface) !important;
     border-right: 1px solid var(--border);
@@ -113,12 +123,15 @@ hr { border-color: var(--border) !important; }
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
-.badge-confirmed  { background: #1a3a1a; color: #3fb950; border: 1px solid #3fb950; }
-.badge-rejected   { background: #3a1a1a; color: #f85149; border: 1px solid #f85149; }
-.badge-uncertain  { background: #3a2e0a; color: #d29922; border: 1px solid #d29922; }
-.badge-annotate   { background: #3a2e0a; color: #d29922; border: 1px solid #d29922; }
-.badge-unreviewed { background: #0d1a2a; color: #58a6ff; border: 1px solid #58a6ff; }
-.badge-ai         { background: #1a1a3a; color: #a78bfa; border: 1px solid #a78bfa; }
+/* color !important: the global `span { color: var(--text) !important }` rule
+   above otherwise wins the cascade and forces every badge to near-white,
+   erasing the confirmed/rejected/uncertain/unreviewed colour coding. */
+.badge-confirmed  { background: #1a3a1a; color: #3fb950 !important; border: 1px solid #3fb950; }
+.badge-rejected   { background: #3a1a1a; color: #f85149 !important; border: 1px solid #f85149; }
+.badge-uncertain  { background: #3a2e0a; color: #d29922 !important; border: 1px solid #d29922; }
+.badge-annotate   { background: #3a2e0a; color: #d29922 !important; border: 1px solid #d29922; }
+.badge-unreviewed { background: #0d1a2a; color: #58a6ff !important; border: 1px solid #58a6ff; }
+.badge-ai         { background: #1a1a3a; color: #a78bfa !important; border: 1px solid #a78bfa; }
 .nav-section-header {
     font-size: 0.68rem;
     font-weight: 700;
@@ -326,6 +339,7 @@ def build_mission_pdf(
     rc: dict,
     t_infer: float,
     clean,
+    plans: dict | None = None,
 ) -> bytes:
     from fpdf import FPDF
     from fpdf.enums import XPos, YPos
@@ -448,6 +462,33 @@ def build_mission_pdf(
         img_h = min(img_h, 90)
         pdf.image(img_buf, x=15, w=max_w, h=img_h)
 
+    # Cleanup route plans (spec PART 19) — only routes the operator explicitly
+    # added; every value below is computed by the routing module, not fabricated.
+    if plans:
+        pdf.ln(6)
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(30, 30, 30)
+        _ln_cell(0, 7, "Recommended Cleanup Routes (decision-support)")
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(60, 60, 60)
+        for pl in plans.values():
+            _cur = "live forecast" if pl.get("current_is_live") else "DEMONSTRATION (synthetic)"
+            lines = [
+                f"Anomaly #{pl['det_id']} ({pl.get('object_class', 'anomaly')}) at "
+                f"{pl['anomaly_lat']:.5f}, {pl['anomaly_lon']:.5f}",
+                f"Departure port: {pl['port_name']} ({pl['port_type']}) at "
+                f"{pl['port_lat']:.4f}, {pl['port_lon']:.4f}",
+                f"Objective: {pl['objective']} | Distance: {pl['distance_km']} km | "
+                f"ETA: {pl['eta_h']} h at {pl['vessel_speed_kn']:.1f} kn",
+                f"Mean along-track current assist: {pl['mean_assist_ms']:+.3f} m/s",
+                f"Current data: {_cur} | source: {pl['current_source']} | "
+                f"timestamp: {pl['current_timestamp']}",
+                f"{pl['route_class_label']} Generated {pl['generated_at']}.",
+            ]
+            for ln in lines:
+                pdf.multi_cell(0, 4, _pdf_latin(ln))
+            pdf.ln(2)
+
     pdf.ln(8)
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(30, 30, 30)
@@ -516,6 +557,7 @@ with st.sidebar:
         ("detections",  "Detections"),
         ("detail",      "Anomaly Detail"),
         ("map",         "Map"),
+        ("plan",        "Plan Cleanup"),
         ("review",      "Summary"),
         ("report",      "Report"),
         ("system",      "System & Validation"),
@@ -543,7 +585,11 @@ with st.sidebar:
     slant_fix = True
     selected_device = "Custom / Manual"
     range_m = 50.0
-    lat0, lon0, heading, altitude, along_track = 45.0855, -83.5684, 90.0, 15.0, 120.0
+    # Demo survey origin: open water in the English Channel ~10 NM SSE of
+    # Plymouth (in-sea, not on land). A land origin was the root cause of the
+    # "anomaly appears on land" bug — any correct pixel->lat/lon transform
+    # anchored to a land point yields land detections (spec PART 1).
+    lat0, lon0, heading, altitude, along_track = 50.1000, -4.2000, 90.0, 15.0, 120.0
     threshold, min_area, stress = 0.5, 80, False
     input_mode = "Image file"
 
@@ -619,8 +665,8 @@ with st.sidebar:
         )
 
         if input_mode == "Image file":
-            lat0 = st.number_input("Origin lat", value=45.0855, format="%.6f", key="cfg_lat0")
-            lon0 = st.number_input("Origin lon", value=-83.5684, format="%.6f", key="cfg_lon0")
+            lat0 = st.number_input("Origin lat", value=50.1000, format="%.6f", key="cfg_lat0")
+            lon0 = st.number_input("Origin lon", value=-4.2000, format="%.6f", key="cfg_lon0")
             heading = st.slider("Heading (deg)", 0.0, 359.0, 90.0, key="cfg_heading")
             altitude = st.slider("Altitude (m)", 5.0, 50.0, 15.0, key="cfg_altitude")
             st.markdown("**SSS Device**")
@@ -718,43 +764,95 @@ if file_bytes and st.session_state.get("survey_started"):
     _need_infer = _file_changed or _params_changed or "_infer_results" not in st.session_state
 
     if _need_infer:
-        detector = get_detector()
-        detector.threshold = threshold
-        _t_infer_start = time.perf_counter()
-        if input_mode == "XTF sonar log":
-            h, w = clean.shape
-            resized = cv2.resize(clean, (512, 512), interpolation=cv2.INTER_AREA)
-            prob_s, mask_s, _ = detector(resized, preprocessed=True)
-            sx, sy = w / 512, h / 512
-            prob = cv2.resize(prob_s, (w, h))
-            mask = (prob > threshold).astype(np.uint8)
-            dets_raw = detector.extract_detections(prob, mask, min_area=min_area)
-            for d in dets_raw:
-                x1, y1, x2, y2 = d["bbox_xyxy"]
-                d["bbox_xyxy"] = [int(x1 * sx), int(y1 * sy), int(x2 * sx), int(y2 * sy)]
-                d["centroid_px"] = [d["centroid_px"][0] * sx, d["centroid_px"][1] * sy]
-        else:
-            prob, mask, _ = detector(clean, preprocessed=True)
-            dets_raw = detector.extract_detections(prob, mask, min_area=min_area)
+        with st.spinner("Running detection pipeline — segmentation, confidence scoring, geotagging…"):
+            detector = get_detector()
+            detector.threshold = threshold
+            _t_infer_start = time.perf_counter()
+            if input_mode == "XTF sonar log":
+                h, w = clean.shape
+                resized = cv2.resize(clean, (512, 512), interpolation=cv2.INTER_AREA)
+                prob_s, mask_s, _ = detector(resized, preprocessed=True)
+                sx, sy = w / 512, h / 512
+                prob = cv2.resize(prob_s, (w, h))
+                mask = (prob > threshold).astype(np.uint8)
+                dets_raw = detector.extract_detections(prob, mask, min_area=min_area)
+                for d in dets_raw:
+                    x1, y1, x2, y2 = d["bbox_xyxy"]
+                    d["bbox_xyxy"] = [int(x1 * sx), int(y1 * sy), int(x2 * sx), int(y2 * sy)]
+                    d["centroid_px"] = [d["centroid_px"][0] * sx, d["centroid_px"][1] * sy]
+            else:
+                prob, mask, _ = detector(clean, preprocessed=True)
+                dets_raw = detector.extract_detections(prob, mask, min_area=min_area)
 
-        n_tiles = max(1, (clean.shape[0] // 512) * (clean.shape[1] // 512))
-        _pipeline_log.append(("Segmentation inference", f"{n_tiles} tile(s), threshold={threshold}"))
-        scored = score_detections(clean, prob, dets_raw, mask)
-        _t_infer_s = time.perf_counter() - _t_infer_start
-        _pipeline_log.append(("Connected-component extraction", f"{len(dets_raw)} component(s), min_area={min_area}px"))
-        _pipeline_log.append(("Confidence scoring", f"{len(scored)} detection(s) scored"))
+            n_tiles = max(1, (clean.shape[0] // 512) * (clean.shape[1] // 512))
+            _pipeline_log.append(("Segmentation inference", f"{n_tiles} tile(s), threshold={threshold}"))
+            scored = score_detections(clean, prob, dets_raw, mask)
+            _t_infer_s = time.perf_counter() - _t_infer_start
+            _pipeline_log.append(("Connected-component extraction", f"{len(dets_raw)} component(s), min_area={min_area}px"))
+            _pipeline_log.append(("Confidence scoring", f"{len(scored)} detection(s) scored"))
 
         if input_mode == "XTF sonar log":
+            # Per-ping nav-aware geolocation. Each detection is placed from the
+            # navigation fix of the ping (image row) it sits on, plus a
+            # perpendicular across-track offset — it follows the real track
+            # instead of a single-origin straight-line guess (the old bug that
+            # displaced detections ~half the track length onto shore).
             meta = meta_from_file
+            _geo_warn = None
+            units_ok, units_reason = coordinate_units_plausible(_nav_pings)
+            if not units_ok:
+                for d in scored:
+                    d["lat"] = d["lon"] = None
+                    d["geo_valid"] = False
+                    d["geo_reason"] = units_reason
+                geod = scored
+                _geo_warn = ("Anomaly positions could not be reliably determined "
+                             f"from the available navigation data ({units_reason}).")
+            else:
+                nav_mapper = NavTrackGeoMapper(_nav_pings, clean.shape[0], clean.shape[1])
+                geod = nav_mapper.geotag(scored)
+                _n_bad = sum(1 for d in geod if not d.get("geo_valid", True))
+                if _n_bad:
+                    _geo_warn = (f"{_n_bad} of {len(geod)} anomaly position(s) failed the "
+                                 "off-track sanity check and are hidden from the map.")
+            _pipeline_log.append(("Geotagging", f"per-ping nav fix over {len(_nav_pings)} pings"))
         else:
             meta = SonarMeta(
                 lat0=lat0, lon0=lon0, heading_deg=heading,
                 altitude_m=altitude, range_m=range_m, along_track_m=along_track,
             )
-        mapper = PixelGeoMapper(clean.shape[0], clean.shape[1], meta)
-        geod = mapper.geotag(scored)
-        _pipeline_log.append(("Geotagging", f"origin ({meta.lat0:.4f}, {meta.lon0:.4f})"))
+            mapper = PixelGeoMapper(clean.shape[0], clean.shape[1], meta)
+            # geotag() sets geo_valid / geo_reason honestly (range + off-origin
+            # sanity check). We TRUST that verdict here — no force-set to True.
+            geod = mapper.geotag(scored)
+            _geo_warn = None
+            _n_bad = sum(1 for d in geod if not d.get("geo_valid", True))
+            if _n_bad:
+                _geo_warn = ("Anomaly position could not be reliably determined "
+                             "from the available navigation data "
+                             f"({_n_bad} of {len(geod)} detection(s) failed the "
+                             "coordinate sanity check and are hidden from the map).")
+            # Additional water advisory ONLY — a flag, never a coordinate move
+            # (spec PART 4: do not cheat the map). Coastline data is offline and
+            # fail-open, so absence of data never invalidates a fix.
+            try:
+                from routing.coastline import coastline_available, is_land
+                if coastline_available():
+                    _n_land = sum(
+                        1 for d in geod
+                        if d.get("geo_valid") and d.get("lat") is not None
+                        and is_land(d["lat"], d["lon"])
+                    )
+                    if _n_land:
+                        _adv = (f"Advisory: {_n_land} valid fix(es) fall on land per the "
+                                "coastline layer — verify the survey origin/heading. "
+                                "Coordinates are shown as computed and NOT relocated.")
+                        _geo_warn = (_geo_warn + " " + _adv) if _geo_warn else _adv
+            except Exception:
+                pass  # coastline is a best-effort advisory; never block on it
+            _pipeline_log.append(("Geotagging", f"origin ({meta.lat0:.4f}, {meta.lon0:.4f})"))
 
+        st.session_state["_geo_warn"] = _geo_warn
         # Store in session state so review-save reruns are instant
         st.session_state["_infer_results"] = (prob, mask, geod, meta, _t_infer_s)
         st.session_state["_infer_file_key"] = _file_key
@@ -1305,7 +1403,14 @@ elif cur_nav == "detail":
                     gp2.metric("Solidity score",  f"{geo_parts.get('solidity', 0):.3f}")
                     gp3.metric("Edge sharpness",  f"{geo_parts.get('edge', 0):.3f}")
 
-            st.markdown(f"**Lat:** {d['lat']:.6f}  |  **Lon:** {d['lon']:.6f}  |  Flagged: {'Yes (likely natural)' if d['likely_rock_or_shadow'] else 'No'}")
+            if d.get("lat") is not None and d.get("lon") is not None:
+                st.markdown(f"**Lat:** {d['lat']:.6f}  |  **Lon:** {d['lon']:.6f}  |  Flagged: {'Yes (likely natural)' if d['likely_rock_or_shadow'] else 'No'}")
+            else:
+                st.markdown(
+                    "**Position:** _could not be reliably determined_  |  "
+                    f"Flagged: {'Yes (likely natural)' if d['likely_rock_or_shadow'] else 'No'}"
+                )
+                st.caption(f"Geolocation sanity check: {d.get('geo_reason') or 'coordinate rejected'}")
 
             st.markdown("")
 
@@ -1350,6 +1455,29 @@ elif cur_nav == "detail":
                     delete_review(conn, run_id, det_id)
                     st.rerun()
 
+            # --- PART 2/24: respond to a CONFIRMED anomaly ------------------
+            # The cleanup planner is only offered once an operator has confirmed
+            # the anomaly AND it has a reliable position — we never plan a route
+            # to an unvalidated / null coordinate.
+            if action == "confirm":
+                if d.get("lat") is not None and d.get("lon") is not None:
+                    st.markdown("### Respond")
+                    st.caption("Anomaly confirmed. Plan a current-aware cleanup/inspection "
+                               "route from a real maritime port.")
+                    if st.button("PLAN CLEANUP", key=f"det_plan_{run_id}_{det_id}",
+                                 type="primary"):
+                        st.session_state["plan_target"] = {
+                            "det_id": det_id,
+                            "lat": float(d["lat"]),
+                            "lon": float(d["lon"]),
+                            "object_class": d.get("object_class", "anomaly"),
+                        }
+                        st.session_state["nav"] = "plan"
+                        st.rerun()
+                else:
+                    st.info("Cleanup planning is unavailable — this confirmed anomaly has no "
+                            "reliable position (geolocation sanity check failed).")
+
             _ret = st.session_state.get("detail_return", "detections")
             _ret_label = {"review": "Summary", "map": "Map"}.get(_ret, "Detections")
             col_back, _ = st.columns([1, 4])
@@ -1368,6 +1496,9 @@ elif cur_nav == "detail":
 # ----------------------------------------------------------------
 elif cur_nav == "map":
     st.markdown("## Survey Coverage Map")
+    _gw = st.session_state.get("_geo_warn")
+    if _gw:
+        st.warning(f"**GEOLOCATION WARNING** — {_gw}")
     if (st.session_state.get("survey_cfg") or {}).get("source") == "sample":
         st.caption("Illustrative locations — approximate survey-area coordinates only. No real survey navigation data for this sample.")
     if not file_bytes or not geod:
@@ -1477,6 +1608,238 @@ elif cur_nav == "map":
 
 
 # ----------------------------------------------------------------
+# PLAN CLEANUP — current-aware route from a real port (spec PART 2-24)
+# ----------------------------------------------------------------
+elif cur_nav == "plan":
+    st.markdown("## Plan Cleanup Route")
+    st.caption("Decision-support route planning for a cleanup/inspection vessel. "
+               "Not autonomous navigation, not a certified navigational route.")
+    target = st.session_state.get("plan_target")
+    if not target:
+        st.info("No confirmed anomaly selected. Open a detection, confirm it, then press "
+                "**PLAN CLEANUP** to plan a route to it.")
+        if st.button("Go to Detections", key="plan_to_det", type="primary"):
+            st.session_state["nav"] = "detections"
+            st.rerun()
+    else:
+        a_lat, a_lon = target["lat"], target["lon"]
+        st.markdown("### Target Anomaly")
+        tcol1, tcol2, tcol3 = st.columns(3)
+        tcol1.metric("Detection", f"#{target['det_id']}")
+        tcol2.metric("Latitude", f"{a_lat:.6f}")
+        tcol3.metric("Longitude", f"{a_lon:.6f}")
+        st.caption(f"Class: {target.get('object_class', 'anomaly')} · position from the "
+                   "confirmed, sanity-checked geolocation (never a fabricated coordinate).")
+
+        pc1, pc2 = st.columns(2)
+        speed_kn = pc1.number_input(
+            "Vessel cruising speed (kn)", min_value=2.0, max_value=25.0,
+            value=float(st.session_state.get("plan_speed_kn", 8.0)), step=0.5,
+            key="plan_speed_input",
+            help="Documented planning assumption — a constant through-water cruising "
+                 "speed. Change it to re-plan.",
+        )
+        prefer_live = pc2.checkbox(
+            "Use live current forecast (Open-Meteo)", value=True, key="plan_prefer_live",
+            help="If off, or if the live lookup fails, a clearly-labelled demonstration "
+                 "current field is used instead.",
+        )
+
+        # PART 21: cache the plan; recompute only when target or inputs change.
+        plan_key = (target["det_id"], round(a_lat, 6), round(a_lon, 6),
+                    round(speed_kn, 2), bool(prefer_live))
+        plan = None
+        if st.session_state.get("_plan_key") == plan_key:
+            plan = st.session_state.get("_plan_obj")
+        if plan is None:
+            from routing.plan import plan_cleanup
+            _stages = {
+                "current": "Loading current data",
+                "ports": "Finding suitable port",
+                "ranking": "Ranking departure ports",
+                "routing": "Building marine route & optimizing",
+                "done": "Finalizing",
+            }
+            with st.status("Planning cleanup route…", expanded=True) as _status:
+                _seen = {}
+                def _progress(stage):
+                    if stage in _stages and stage not in _seen:
+                        _seen[stage] = True
+                        st.write(f"• {_stages[stage]}")
+                plan = plan_cleanup(a_lat, a_lon, vessel_speed_kn=speed_kn,
+                                    prefer_live_current=prefer_live, progress=_progress)
+                _status.update(label="Route planning complete", state="complete",
+                               expanded=False)
+            st.session_state["_plan_key"] = plan_key
+            st.session_state["_plan_obj"] = plan
+            st.session_state["plan_speed_kn"] = speed_kn
+            # Do NOT cache a transient failure (e.g. a port/current API timeout):
+            # drop the key so simply revisiting the page retries the live lookup.
+            if not plan.feasible:
+                st.session_state["_plan_key"] = None
+
+        # Provenance banner (PART 16/17) — always honest about data source.
+        prov = plan.current_provenance
+        if prov is not None and not prov.is_live:
+            st.warning(prov.label)
+        elif prov is not None:
+            st.info(prov.label)
+
+        # Honest data-source / safety notices (e.g. offline port catalog, land
+        # not checked) — shown whether or not a route was found.
+        for w in plan.warnings:
+            if w and w != (prov.label if prov else None):
+                st.caption(w)
+
+        if not plan.feasible:
+            st.error(f"Route planning could not complete: {plan.reason}")
+        else:
+            rec = plan.recommended_route
+            port = plan.recommended_port
+
+            # RECOMMENDED DEPARTURE PORT (PART 3/4)
+            st.markdown("### Recommended Departure Port")
+            st.markdown(f"**{port.name}** — {port.port_type}"
+                        + (f" · {port.country}" if port.country else ""))
+            st.caption(port.suitability)
+            _src = ("bundled offline catalog" if port.osm_id == "offline-catalog"
+                    else f"OpenStreetMap {port.osm_id}")
+            st.caption(f"Source: {_src} · "
+                       f"{port.straight_km:.1f} km straight-line to anomaly (reference only — "
+                       "NOT the selection criterion).")
+            st.success(plan.recommended_reason)
+
+            # CURRENT CONDITIONS (PART 5) — reported from the sampled field.
+            st.markdown("### Current Conditions")
+            if rec.legs:
+                _near = rec.legs[-1]  # leg closest to the anomaly
+                cc1, cc2, cc3 = st.columns(3)
+                cc1.metric("Current speed", f"{_near.current_speed_ms:.2f} m/s")
+                cc2.metric("Flowing toward", f"{_near.current_bearing_deg:.0f}° (from N)")
+                _assist = plan.recommended_route.mean_assist_ms
+                cc3.metric("Mean along-track assist", f"{_assist:+.2f} m/s",
+                           help="+ = current helps along the route, − = current opposes. "
+                                "Only the component projected onto the route heading counts.")
+            if prov is not None:
+                st.caption(f"Source: {prov.source} · Resolution: {prov.resolution}"
+                           + (f" · Sampled: {prov.timestamp} UTC" if prov.timestamp else ""))
+
+            # ROUTE DETAILS (PART 15) — every value is computed, none fabricated.
+            st.markdown("### Route Details")
+            _km = rec.total_dist_m / 1000.0
+            _hrs = rec.total_time_s / 3600.0
+            rd1, rd2, rd3, rd4 = st.columns(4)
+            rd1.metric("Total distance", f"{_km:.1f} km")
+            rd2.metric("Estimated transit", f"{_hrs:.1f} h")
+            rd3.metric("Route segments", f"{len(plan.segments)}")
+            rd4.metric("Cruising speed", f"{plan.vessel_speed_kn:.1f} kn")
+            st.caption(f"Objective: current-aware minimum travel time · "
+                       f"Generated {plan.generated_at} · {plan.route_class_label}")
+            st.caption("Assumptions: constant through-water cruising speed; current field "
+                       "treated as locally uniform for the live single-point sample; ETA "
+                       "excludes on-site cleanup/inspection time. Fuel savings are NOT "
+                       "modelled and are not reported.")
+
+            # WHY THIS ROUTE (PART 12) — supported statements only.
+            with st.expander("Why this route?", expanded=False):
+                st.markdown(
+                    f"- **{port.name}** gives the shortest *current-aware* travel time of the "
+                    f"candidate ports evaluated (not merely the closest by straight line).\n"
+                    f"- The route is optimized over a water-only marine grid, so it follows "
+                    f"navigable water rather than a straight line across land.\n"
+                    f"- Along-track current assist averages **{rec.mean_assist_ms:+.2f} m/s** "
+                    f"over the route under the current field above.\n"
+                    f"- This is a planning/visualization route for decision support — it is "
+                    f"not a certified navigational route and does not model obstacles beyond "
+                    f"the coastline mask."
+                )
+
+            # ALTERNATIVES (PART 13) — labelled by objective, none called "best".
+            st.markdown("### Alternative Routes")
+            _obj_labels = {
+                "current_time": "Current-aware (recommended objective)",
+                "distance": "Shortest distance",
+                "min_resistance": "Lowest current resistance",
+            }
+            _alt_rows = []
+            for obj, sol in plan.routes.items():
+                if not sol.feasible:
+                    _alt_rows.append({"Route": _obj_labels.get(obj, obj),
+                                      "Distance (km)": "—", "Transit (h)": "—",
+                                      "Mean assist (m/s)": "—", "Status": sol.reason or "infeasible"})
+                    continue
+                _alt_rows.append({
+                    "Route": _obj_labels.get(obj, obj),
+                    "Distance (km)": round(sol.total_dist_m / 1000.0, 1),
+                    "Transit (h)": round(sol.total_time_s / 3600.0, 2),
+                    "Mean assist (m/s)": round(sol.mean_assist_ms, 3),
+                    "Status": "recommended" if obj == plan.primary_objective else "alternative",
+                })
+            import pandas as _pd
+            st.dataframe(_pd.DataFrame(_alt_rows), use_container_width=True, hide_index=True)
+
+            # ROUTE MAP (PART 10/11) — real marine route, visually distinct.
+            st.markdown("### Recommended Route Map")
+            if not _FOLIUM_OK:
+                st.error("Route map requires streamlit-folium (pip install streamlit-folium folium).")
+            elif not rec.legs:
+                st.warning("No route legs to draw.")
+            else:
+                _route_pts = [[rec.legs[0].lat1, rec.legs[0].lon1]] + \
+                             [[lg.lat2, lg.lon2] for lg in rec.legs]
+                _mlat = sum(p[0] for p in _route_pts) / len(_route_pts)
+                _mlon = sum(p[1] for p in _route_pts) / len(_route_pts)
+                _rmap = folium.Map(location=[_mlat, _mlon], zoom_start=10, tiles=None)
+                folium.TileLayer(
+                    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                    attr="Esri World Imagery", name="Esri",
+                ).add_to(_rmap)
+                # Route polyline — teal, distinct from survey-track styling.
+                folium.PolyLine(_route_pts, color="#2dd4bf", weight=4, opacity=0.9,
+                                tooltip="Recommended cleanup route").add_to(_rmap)
+                folium.Marker(
+                    [port.lat, port.lon], tooltip=f"Departure: {port.name}",
+                    icon=folium.Icon(color="green", icon="ship", prefix="fa"),
+                ).add_to(_rmap)
+                folium.CircleMarker(
+                    [a_lat, a_lon], radius=9, color="#f85149", fill=True,
+                    fill_color="#f85149", fill_opacity=0.9, weight=2,
+                    tooltip=f"Target anomaly #{target['det_id']}",
+                ).add_to(_rmap)
+                st_folium(_rmap, height=480, width=None,
+                          returned_objects=[], key="cleanup_route_map")
+                st.caption("Teal line = recommended cleanup route (follows the marine water "
+                           "grid). Green marker = departure port · Red marker = anomaly.")
+
+            # ADD TO MISSION REPORT (PART 19)
+            if st.button("Add this route to the mission report", key="plan_add_report",
+                         type="primary"):
+                plans = st.session_state.setdefault("mission_plans", {})
+                plans[target["det_id"]] = {
+                    "det_id": target["det_id"],
+                    "anomaly_lat": a_lat, "anomaly_lon": a_lon,
+                    "object_class": target.get("object_class", "anomaly"),
+                    "port_name": port.name, "port_type": port.port_type,
+                    "port_lat": port.lat, "port_lon": port.lon,
+                    "distance_km": round(_km, 1), "eta_h": round(_hrs, 2),
+                    "vessel_speed_kn": plan.vessel_speed_kn,
+                    "objective": "current-aware minimum travel time",
+                    "mean_assist_ms": round(rec.mean_assist_ms, 3),
+                    "current_source": prov.source if prov else "n/a",
+                    "current_timestamp": (prov.timestamp if prov else "") or "n/a",
+                    "current_is_live": bool(prov.is_live) if prov else False,
+                    "route_class_label": plan.route_class_label,
+                    "generated_at": plan.generated_at,
+                }
+                st.success("Route added to the mission report.")
+
+        st.markdown("")
+        if st.button("← Back to Anomaly Detail", key="plan_back"):
+            st.session_state["nav"] = "detail"
+            st.rerun()
+
+
+# ----------------------------------------------------------------
 # SUMMARY
 # ----------------------------------------------------------------
 elif cur_nav == "review":
@@ -1575,15 +1938,17 @@ elif cur_nav == "report":
         """)
 
         try:
-            pdf_bytes = build_mission_pdf(
-                name=name,
-                run_id=run_id,
-                geod=geod,
-                reviews=reviews,
-                rc=rc,
-                t_infer=_t_infer_s,
-                clean=clean,
-            )
+            with st.spinner("Generating PDF mission report…"):
+                pdf_bytes = build_mission_pdf(
+                    name=name,
+                    run_id=run_id,
+                    geod=geod,
+                    reviews=reviews,
+                    rc=rc,
+                    t_infer=_t_infer_s,
+                    clean=clean,
+                    plans=st.session_state.get("mission_plans"),
+                )
             pdf_ok = True
             pdf_err_msg = None
         except Exception as _pdf_err:
