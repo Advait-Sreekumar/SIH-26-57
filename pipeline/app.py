@@ -3,6 +3,7 @@ import json
 import time
 import datetime
 import io
+import os
 from pathlib import Path
 
 import cv2
@@ -18,6 +19,53 @@ except ImportError:
     _FOLIUM_OK = False
     folium = None
     st_folium = None
+
+# Checkpoint management for deployment.
+# The model checkpoint is a 97 MB .pth file excluded from the repo (.gitignore).
+# Before importing infer.py, resolve the checkpoint from one of these sources:
+#   1. SONAR_CKPT env var (explicit path) — takes precedence
+#   2. SONAR_CKPT_URL env var (hosted URL) — downloads to a local path
+#   3. Local file in the repo (AI4Shipwrecks/AI4Shipwrecks/runs/)
+#   4. Common local fallback paths
+if "SONAR_CKPT" not in os.environ:
+    _REPO_ROOT = Path(__file__).parent.parent
+    _default_ckpt = _REPO_ROOT / "AI4Shipwrecks" / "AI4Shipwrecks" / "runs" / "best_model_v1_iou0.71.pth"
+
+    if _default_ckpt.exists():
+        os.environ["SONAR_CKPT"] = str(_default_ckpt)
+    else:
+        _hosted_url = os.environ.get("SONAR_CKPT_URL")
+        if _hosted_url:
+            try:
+                import requests
+
+                _ckpt_filename = os.environ.get("SONAR_CKPT_FILENAME", "best_model_v1_iou0.71.pth")
+                _local_path = _REPO_ROOT / _ckpt_filename
+
+                if not _local_path.exists():
+                    st.write(f"Downloading checkpoint from {_hosted_url.split('?')[0]}...")
+                    _response = requests.get(_hosted_url, stream=True, timeout=60)
+                    _response.raise_for_status()
+                    _total = int(_response.headers.get("content-length", 0))
+                    with open(_local_path, "wb") as _f:
+                        for _chunk in _response.iter_content(chunk_size=8192):
+                            if _chunk:
+                                _f.write(_chunk)
+                    st.success(f"Checkpoint downloaded to {_local_path}")
+                os.environ["SONAR_CKPT"] = str(_local_path)
+            except ImportError:
+                st.warning("requests library not installed — install it or set SONAR_CKPT manually")
+            except Exception as _e:
+                st.error(f"Failed to download checkpoint from {_hosted_url}: {_e}")
+                st.error("Set the SONAR_CKPT environment variable to a local path instead.")
+        else:
+            for _alt in (
+                _REPO_ROOT / "best_model_v1_iou0.71.pth",
+                Path.home() / "models" / "best_model_v1_iou0.71.pth",
+            ):
+                if _alt.exists():
+                    os.environ["SONAR_CKPT"] = str(_alt)
+                    break
 
 from categories import load_categories
 from confidence import score_detections
