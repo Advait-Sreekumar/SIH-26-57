@@ -24,6 +24,7 @@ from confidence import score_detections
 from geotag import PixelGeoMapper, SonarMeta, save_report
 from geolocate import NavTrackGeoMapper, coordinate_units_plausible
 from infer import SonarDetector
+import mapviz
 from preprocess import preprocess
 from review_store import (
     delete_review,
@@ -59,28 +60,35 @@ st.set_page_config(page_title="SonarEye", layout="wide", page_icon="\U0001f4e1")
 # ---- Global CSS: dark navy/teal scientific instrumentation theme ----
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 :root {
-    --bg:       #0d1117;
-    --surface:  #161b22;
-    --border:   #21262d;
-    --primary:  #1d6fa4;
-    --teal:     #2ea8a0;
-    --text:     #e6edf3;
-    --muted:    #8b949e;
-    --green:    #3fb950;
-    --amber:    #d29922;
-    --red:      #f85149;
-    --accent:   #58a6ff;
+    --bg:         #0d1117;
+    --surface:    #151b23;
+    --surface-2:  #1b222c;
+    --border:     #232b36;
+    --border-soft:#1d242e;
+    --primary:    #2ea8a0;   /* teal — the one brand + action accent */
+    --primary-hi: #3dc4bb;
+    --primary-dim:#1f7e78;
+    --teal:       #2ea8a0;
+    --text:       #e6edf3;
+    --muted:      #8b949e;
+    --green:      #3fb950;
+    --amber:      #d29922;
+    --red:        #f85149;
+    --blue:       #58a6ff;   /* reserved: "unreviewed" status only */
+    --accent:     #58a6ff;
+    --steel:      #7ea8c4;   /* machine/AI flag — cool, distinct from status hues */
+    --mono: 'IBM Plex Mono','SF Mono','Consolas',monospace;
+    --sans: 'IBM Plex Sans','Segoe UI',system-ui,-apple-system,sans-serif;
 }
 html, body, [data-testid="stAppViewContainer"] {
     background-color: var(--bg) !important;
     color: var(--text) !important;
+    font-family: var(--sans) !important;
 }
-/* Reclaim Streamlit's very large default block padding (6rem top / 10rem
-   bottom). On a standard 1366x768 demo laptop — especially at 125% OS
-   display scaling — that dead space forces the operator to zoom the browser
-   out to ~90% to see a page without scrolling. Tightening it lets the app
-   render cleanly at 100% zoom, the actual demo condition. */
+/* Reclaim Streamlit's oversized default block padding so the app renders
+   cleanly at 100% browser zoom on a 1366x768 demo laptop. */
 [data-testid="stMainBlockContainer"], .block-container {
     padding-top: 2.2rem !important;
     padding-bottom: 3rem !important;
@@ -90,126 +98,164 @@ html, body, [data-testid="stAppViewContainer"] {
     border-right: 1px solid var(--border);
 }
 [data-testid="stSidebar"] * { color: var(--text) !important; }
-.stMarkdown, .stText, p, li, span, label { color: var(--text) !important; }
-h1, h2, h3, h4 { color: var(--text) !important; font-weight: 600 !important; }
+.stMarkdown, .stText, p, li, span, label { color: var(--text) !important; font-family: var(--sans) !important; }
+p, li { line-height: 1.55; }
+/* Type scale — one family, distinct weight/size/colour per level. */
+h1, h2, h3, h4 { color: var(--text) !important; font-family: var(--sans) !important; letter-spacing: -0.01em; }
+h1 { font-size: 2.0rem !important; font-weight: 700 !important; }
+h2 { font-size: 1.5rem !important; font-weight: 600 !important; margin-top: 0.4rem !important; padding-bottom: 5px; }
+/* Focal "scan line": one short teal rule under each screen's title. */
+[data-testid="stMainBlockContainer"] h2 { display: inline-block; border-bottom: 2px solid var(--primary); }
+h3 { font-size: 1.12rem !important; font-weight: 600 !important; color: #cdd7e1 !important; margin-top: 0.5rem !important; }
+h4 { font-size: 0.95rem !important; font-weight: 600 !important; color: var(--muted) !important; }
+/* Buttons encode one idea: teal = act or "you are here"; quiet = everything else.
+   Primary (CTAs + active nav item) is solid teal; secondary is a ghost control. */
 .stButton > button {
-    background-color: var(--primary) !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: 4px !important;
+    border-radius: 5px !important;
     font-weight: 600 !important;
     font-size: 0.85rem !important;
+    font-family: var(--sans) !important;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
 }
-.stButton > button:hover {
-    background-color: var(--teal) !important;
+.stButton > button[kind="primary"] {
+    background-color: var(--primary) !important;
+    color: #06201e !important;
+    border: 1px solid var(--primary) !important;
 }
-[data-testid="metric-container"] {
-    background-color: var(--surface) !important;
+.stButton > button[kind="primary"]:hover {
+    background-color: var(--primary-hi) !important;
+    border-color: var(--primary-hi) !important;
+}
+.stButton > button[kind="secondary"] {
+    background-color: var(--surface-2) !important;
+    color: var(--muted) !important;
     border: 1px solid var(--border) !important;
-    border-radius: 6px !important;
-    padding: 10px 14px !important;
 }
-[data-testid="metric-container"] label { color: var(--muted) !important; font-size: 0.75rem !important; }
-[data-testid="metric-container"] [data-testid="stMetricValue"] { color: var(--text) !important; font-size: 1.5rem !important; }
-.stDataFrame { background-color: var(--surface) !important; }
-.stExpander { background-color: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: 6px !important; }
+.stButton > button[kind="secondary"]:hover {
+    color: var(--primary-hi) !important;
+    border-color: var(--primary-dim) !important;
+}
+/* Sidebar buttons read as nav rows: left-aligned, full width. */
+[data-testid="stSidebar"] .stButton > button { text-align: left !important; justify-content: flex-start !important; }
+/* Visible keyboard focus for accessibility. */
+.stButton > button:focus-visible,
+[data-baseweb="input"] input:focus-visible,
+[data-baseweb="textarea"] textarea:focus-visible {
+    outline: 2px solid var(--primary-hi) !important;
+    outline-offset: 1px !important;
+}
+/* Metrics read like instrument readouts: mono value, quiet label, hairline frame.
+   (Streamlit renamed the container testid metric-container -> stMetric; match both.) */
+[data-testid="metric-container"], [data-testid="stMetric"] {
+    background-color: var(--surface) !important;
+    border: 1px solid var(--border-soft) !important;
+    border-radius: 6px !important;
+    padding: 12px 16px !important;
+}
+[data-testid="metric-container"] label, [data-testid="stMetric"] label { color: var(--muted) !important; font-size: 0.74rem !important; letter-spacing: 0.02em; }
+[data-testid="stMetricValue"] { color: var(--text) !important; font-size: 1.5rem !important; font-family: var(--mono) !important; font-weight: 500 !important; }
+.stDataFrame { background-color: var(--surface) !important; border: 1px solid var(--border-soft) !important; border-radius: 6px !important; }
+.stExpander { background-color: var(--surface) !important; border: 1px solid var(--border-soft) !important; border-radius: 6px !important; }
 hr { border-color: var(--border) !important; }
 .status-badge {
     display: inline-block;
-    padding: 2px 8px;
+    padding: 2px 9px;
     border-radius: 3px;
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
 }
-/* color !important: the global `span { color: var(--text) !important }` rule
-   above otherwise wins the cascade and forces every badge to near-white,
-   erasing the confirmed/rejected/uncertain/unreviewed colour coding. */
-.badge-confirmed  { background: #1a3a1a; color: #3fb950 !important; border: 1px solid #3fb950; }
-.badge-rejected   { background: #3a1a1a; color: #f85149 !important; border: 1px solid #f85149; }
-.badge-uncertain  { background: #3a2e0a; color: #d29922 !important; border: 1px solid #d29922; }
-.badge-annotate   { background: #3a2e0a; color: #d29922 !important; border: 1px solid #d29922; }
-.badge-unreviewed { background: #0d1a2a; color: #58a6ff !important; border: 1px solid #58a6ff; }
-.badge-ai         { background: #1a1a3a; color: #a78bfa !important; border: 1px solid #a78bfa; }
+/* color !important beats the global `span{color:var(--text)!important}` rule so the
+   confirmed/rejected/uncertain/unreviewed status coding survives the cascade. */
+.badge-confirmed  { background: #12291a; color: #56d364 !important; border: 1px solid var(--green); }
+.badge-rejected   { background: #2a1517; color: #ff7b72 !important; border: 1px solid var(--red); }
+.badge-uncertain  { background: #2a2109; color: #e3b341 !important; border: 1px solid var(--amber); }
+.badge-annotate   { background: #2a2109; color: #e3b341 !important; border: 1px solid var(--amber); }
+.badge-unreviewed { background: #0d1d2e; color: #79c0ff !important; border: 1px solid var(--blue); }
+/* Machine flag: cool steel, deliberately outside the human-decision status hues. */
+.badge-ai         { background: #14202b; color: #9cc0d6 !important; border: 1px solid #3a5568; }
 .nav-section-header {
-    font-size: 0.68rem;
-    font-weight: 700;
+    font-size: 0.66rem;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--muted) !important;
-    padding: 14px 4px 4px 4px;
+    letter-spacing: 0.14em;
+    color: var(--muted-2, #6e7681) !important;
+    padding: 16px 4px 6px 4px;
     margin: 0;
 }
 .stat-card {
     background: var(--surface);
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-soft);
     border-radius: 6px;
-    padding: 14px 16px;
-    margin-bottom: 8px;
+    padding: 16px 18px;
+    margin-bottom: 10px;
 }
-.stat-card .label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-.stat-card .value { font-size: 1.8rem; font-weight: 700; color: var(--text); line-height: 1.2; }
-.stat-card .sub   { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+.stat-card .label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.stat-card .value { font-size: 1.85rem; font-weight: 600; color: var(--text); line-height: 1.15; font-family: var(--mono); margin-top: 4px; }
+.stat-card .sub   { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
 .info-box {
     background: var(--surface);
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-soft);
     border-left: 3px solid var(--primary);
-    border-radius: 4px;
-    padding: 10px 14px;
-    margin: 8px 0;
+    border-radius: 5px;
+    padding: 12px 16px;
+    margin: 10px 0;
     font-size: 0.85rem;
+    line-height: 1.55;
     color: var(--muted) !important;
 }
 .warn-box {
-    background: #2a1f0a;
-    border: 1px solid var(--amber);
+    background: #241b09;
+    border: 1px solid var(--border-soft);
     border-left: 3px solid var(--amber);
-    border-radius: 4px;
-    padding: 10px 14px;
-    margin: 8px 0;
+    border-radius: 5px;
+    padding: 12px 16px;
+    margin: 10px 0;
     font-size: 0.85rem;
-    color: var(--amber) !important;
+    line-height: 1.55;
+    color: #e3b341 !important;
 }
 .pipeline-step {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 7px 0;
+    gap: 12px;
+    padding: 9px 0;
     font-size: 0.85rem;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-soft);
 }
-.pipeline-step .dot-done    { width:10px; height:10px; border-radius:50%; background:var(--green); flex-shrink:0; }
-.pipeline-step .dot-running { width:10px; height:10px; border-radius:50%; background:var(--amber); flex-shrink:0; }
-.pipeline-step .dot-pending { width:10px; height:10px; border-radius:50%; background:var(--border); flex-shrink:0; }
+.pipeline-step .dot-done    { width:9px; height:9px; border-radius:50%; background:var(--green); flex-shrink:0; }
+.pipeline-step .dot-running { width:9px; height:9px; border-radius:50%; background:var(--amber); flex-shrink:0; }
+.pipeline-step .dot-pending { width:9px; height:9px; border-radius:50%; background:var(--border); flex-shrink:0; }
 .pipeline-step .step-label  { color: var(--text); flex-grow:1; }
-.pipeline-step .step-count  { color: var(--muted); font-size:0.78rem; }
-/* Landing page */
+.pipeline-step .step-count  { color: var(--muted); font-size:0.78rem; font-family:var(--mono); }
+/* Landing page — the hero is the focal moment: a single instrument wordmark. */
 .landing-wrap {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: 65vh;
-    gap: 1.6rem;
+    gap: 1.4rem;
 }
 .sonareye-hero {
-    font-size: 3.6rem;
-    font-weight: 800;
+    font-size: 3.8rem;
+    font-weight: 600;
     color: #e6edf3;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.02em;
     text-align: center;
     margin: 0;
-    font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+    font-family: var(--mono);
 }
 .hero-sub {
     color: #8b949e;
     font-size: 1rem;
     text-align: center;
     margin: 0;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.01em;
+    line-height: 1.5;
 }
-.hero-accent { color: #2ea8a0; }
+.hero-accent { color: #2ea8a0; text-shadow: 0 0 22px rgba(46,168,160,0.35); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1507,28 +1553,10 @@ elif cur_nav == "map":
             st.session_state["nav"] = "survey"
             st.rerun()
     else:
-        _STATUS_HEX = {
-            "confirm":    "#3fb950",
-            "reject":     "#f85149",
-            "uncertain":  "#d29922",
-            "annotate":   "#d29922",
-            "unreviewed": "#58a6ff",
-        }
-        _map_points = []
-        for d in geod:
-            if d["lat"] is None or d["lon"] is None:
-                continue
-            action = reviews.get(d["id"], {}).get("action", "unreviewed")
-            _map_points.append({
-                "lat": d["lat"], "lon": d["lon"],
-                "det_id": d["id"], "confidence": round(d["confidence"], 1),
-                "review_status": action,
-                "classification": "Possible natural feature" if d["likely_rock_or_shadow"] else "Artificial anomaly",
-                "color": "#8b949e" if d["likely_rock_or_shadow"] else _STATUS_HEX.get(action, "#58a6ff"),
-            })
+        _map_points = mapviz.build_survey_points(geod, reviews)
 
         st.caption(
-            "Click a marker to open that detection's evidence panel. "
+            "Click a marker (or a numbered detection below) to focus it. "
             "Basemap: Esri World Imagery. "
             "Green=confirmed  Red=rejected  Amber=uncertain  Blue=unreviewed  Grey=possible natural feature."
         )
@@ -1541,37 +1569,57 @@ elif cur_nav == "map":
         elif not _map_points:
             st.warning("No geotagged points to plot.")
         else:
-            _clat = sum(p["lat"] for p in _map_points) / len(_map_points)
-            _clon = sum(p["lon"] for p in _map_points) / len(_map_points)
-            _fmap = folium.Map(location=[_clat, _clon], zoom_start=14, tiles=None)
+            _focus_id = st.session_state.get("_map_focus")
+            _focus_pt = next((p for p in _map_points if p["det_id"] == _focus_id), None)
+            _bounds = mapviz.bounds_of(_map_points)
+            _clat = (_bounds[0][0] + _bounds[1][0]) / 2.0
+            _clon = (_bounds[0][1] + _bounds[1][1]) / 2.0
+            _fmap = folium.Map(location=[_clat, _clon], tiles=None,
+                               min_zoom=3, max_bounds=True)
             folium.TileLayer(
                 tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
                 attr="Esri World Imagery",
                 name="Esri",
+                no_wrap=True,      # stop the basemap repeating sideways at low zoom
+                min_zoom=3,
             ).add_to(_fmap)
+            # Fit to all detections with padding and a capped zoom, so a single
+            # point (or a cluster only metres apart) doesn't slam to street level
+            # or leave the map parked at world zoom where points overlap.
+            _fmap.fit_bounds(_bounds, padding=(40, 40), max_zoom=17)
             for pt in _map_points:
-                tip = f"det:{pt['det_id']}"
+                if pt["det_id"] == _focus_id:      # highlight ring for focused det
+                    folium.CircleMarker(
+                        location=[pt["lat"], pt["lon"]], radius=16,
+                        color="#ffffff", weight=3, fill=False, opacity=0.95,
+                    ).add_to(_fmap)
                 folium.CircleMarker(
                     location=[pt["lat"], pt["lon"]],
-                    radius=10,
+                    radius=13 if pt["det_id"] == _focus_id else 10,
                     color=pt["color"],
                     fill=True,
                     fill_color=pt["color"],
                     fill_opacity=0.9,
                     weight=2,
-                    tooltip=tip,
+                    tooltip=f"det:{pt['det_id']}",
                     popup=folium.Popup(
                         f"#{pt['det_id']} {pt['classification']}<br/>"
                         f"conf {pt['confidence']:.0f} / {pt['review_status']}",
                         max_width=240,
                     ),
                 ).add_to(_fmap)
+            # Programmatic re-centre: pass center/zoom from session state and key
+            # the map on the focus so streamlit-folium re-applies the view (its
+            # viewport otherwise persists across reruns). Unfocused -> None so the
+            # baked-in fit_bounds is used instead.
             _map_out = st_folium(
                 _fmap,
                 height=520,
                 width=None,
+                center=[_focus_pt["lat"], _focus_pt["lon"]] if _focus_pt else None,
+                zoom=18 if _focus_pt else None,
                 returned_objects=["last_object_clicked", "last_object_clicked_tooltip"],
-                key="survey_coverage_map",
+                key=f"survey_coverage_map_{_focus_id}",
             )
             _tip = None
             if isinstance(_map_out, dict):
@@ -1593,6 +1641,44 @@ elif cur_nav == "map":
                 if _clicked_id is not None and any(d["id"] == _clicked_id for d in geod):
                     st.session_state["_map_last_tip"] = _tip
                     st.session_state["selected_det"] = _clicked_id
+                    st.session_state["detail_return"] = "map"
+                    st.session_state["nav"] = "detail"
+                    st.rerun()
+
+            # ---- Clickable detection controls (focus the map on one) ----
+            st.markdown("**Detections** — click a number to focus it on the map.")
+            _valid_ids = {p["det_id"] for p in _map_points}
+            _by_id = {d["id"]: d for d in geod}
+            _all_ids = mapviz.clickable_detection_ids(geod)
+            _ncol = 6
+            for _start in range(0, len(_all_ids), _ncol):
+                _row = _all_ids[_start:_start + _ncol]
+                _cols = st.columns(_ncol)
+                for _slot, _did in enumerate(_row):
+                    _d = _by_id[_did]
+                    _act = reviews.get(_did, {}).get("action", "unreviewed")
+                    _dot = (mapviz.NATURAL_DOT if _d.get("likely_rock_or_shadow")
+                            else mapviz.STATUS_DOT.get(_act, mapviz.STATUS_DOT["unreviewed"]))
+                    _mappable = _did in _valid_ids
+                    _label = f"{_dot} #{_did}" + ("" if _mappable else " ⚠")
+                    if _cols[_slot].button(
+                            _label, key=f"mapfocus_{_did}", use_container_width=True,
+                            disabled=not _mappable,
+                            type="primary" if _did == _focus_id else "secondary"):
+                        st.session_state["_map_focus"] = _did
+                        st.rerun()
+            _fc1, _fc2 = st.columns([1, 3])
+            if _fc1.button("Show all", key="map_show_all", use_container_width=True):
+                st.session_state["_map_focus"] = None
+                st.rerun()
+            if _focus_pt:
+                _fc2.caption(
+                    f"Focused: #{_focus_pt['det_id']} · {_focus_pt['classification']} · "
+                    f"{_focus_pt['review_status']} · "
+                    f"{_focus_pt['lat']:.6f}, {_focus_pt['lon']:.6f}"
+                )
+                if _fc2.button("Open Anomaly Detail", key="map_focus_detail"):
+                    st.session_state["selected_det"] = _focus_pt["det_id"]
                     st.session_state["detail_return"] = "map"
                     st.session_state["nav"] = "detail"
                     st.rerun()
@@ -1778,38 +1864,60 @@ elif cur_nav == "plan":
             import pandas as _pd
             st.dataframe(_pd.DataFrame(_alt_rows), use_container_width=True, hide_index=True)
 
-            # ROUTE MAP (PART 10/11) — real marine route, visually distinct.
+            # ROUTE MAP (PART 10/11) — indicative straight-line, port -> all
+            # confirmed anomalies. Drawn as straight segments only; the ETA above
+            # is the optimizer's current-aware figure for the primary anomaly.
             st.markdown("### Recommended Route Map")
+            _conf_pts = [p for p in mapviz.build_survey_points(geod, reviews)
+                         if reviews.get(p["det_id"], {}).get("action") == "confirm"]
+            # The anomaly this plan targets is always a stop, even if the confirm
+            # flag hasn't round-tripped through the review store yet.
+            if not any(p["det_id"] == target["det_id"] for p in _conf_pts):
+                _conf_pts.append({"det_id": target["det_id"], "lat": a_lat, "lon": a_lon,
+                                  "review_status": "confirm", "confidence": 0.0,
+                                  "classification": "Artificial anomaly",
+                                  "color": mapviz.STATUS_HEX["confirm"]})
             if not _FOLIUM_OK:
                 st.error("Route map requires streamlit-folium (pip install streamlit-folium folium).")
-            elif not rec.legs:
-                st.warning("No route legs to draw.")
+            elif not _conf_pts:
+                st.warning("No confirmed anomaly with a valid position to route to.")
             else:
-                _route_pts = [[rec.legs[0].lat1, rec.legs[0].lon1]] + \
-                             [[lg.lat2, lg.lon2] for lg in rec.legs]
-                _mlat = sum(p[0] for p in _route_pts) / len(_route_pts)
-                _mlon = sum(p[1] for p in _route_pts) / len(_route_pts)
-                _rmap = folium.Map(location=[_mlat, _mlon], zoom_start=10, tiles=None)
+                _verts, _ordered = mapviz.build_route((port.lat, port.lon), _conf_pts)
+                _rmap = folium.Map(location=[port.lat, port.lon], tiles=None,
+                                   min_zoom=3, max_bounds=True)
                 folium.TileLayer(
                     tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-                    attr="Esri World Imagery", name="Esri",
+                    attr="Esri World Imagery", name="Esri", no_wrap=True, min_zoom=3,
                 ).add_to(_rmap)
-                # Route polyline — teal, distinct from survey-track styling.
-                folium.PolyLine(_route_pts, color="#2dd4bf", weight=4, opacity=0.9,
-                                tooltip="Recommended cleanup route").add_to(_rmap)
+                _rmap.fit_bounds(mapviz.bounds_of(_verts), padding=(50, 50), max_zoom=14)
+                # Dashed teal = indicative straight-line path (starts AT the port pin).
+                folium.PolyLine(_verts, color="#2dd4bf", weight=4, opacity=0.9,
+                                dash_array="8,8",
+                                tooltip="Indicative straight-line cleanup route").add_to(_rmap)
                 folium.Marker(
                     [port.lat, port.lon], tooltip=f"Departure: {port.name}",
                     icon=folium.Icon(color="green", icon="ship", prefix="fa"),
                 ).add_to(_rmap)
-                folium.CircleMarker(
-                    [a_lat, a_lon], radius=9, color="#f85149", fill=True,
-                    fill_color="#f85149", fill_opacity=0.9, weight=2,
-                    tooltip=f"Target anomaly #{target['det_id']}",
-                ).add_to(_rmap)
+                for _i, _s in enumerate(_ordered, start=1):
+                    folium.Marker(
+                        [_s["lat"], _s["lon"]],
+                        tooltip=f"Stop {_i}: anomaly #{_s['det_id']}",
+                        icon=folium.DivIcon(
+                            icon_size=(26, 26), icon_anchor=(13, 13),
+                            html=(f"<div style='background:{_s['color']};color:#fff;"
+                                  "border:2px solid #fff;border-radius:50%;width:26px;"
+                                  "height:26px;line-height:22px;text-align:center;"
+                                  f"font-weight:700;font-size:13px;'>{_i}</div>")),
+                    ).add_to(_rmap)
                 st_folium(_rmap, height=480, width=None,
                           returned_objects=[], key="cleanup_route_map")
-                st.caption("Teal line = recommended cleanup route (follows the marine water "
-                           "grid). Green marker = departure port · Red marker = anomaly.")
+                st.caption(
+                    "**Indicative straight-line route, not a navigable route** — no chart "
+                    "or coastline data backs these segments. Green marker = departure port "
+                    f"(**{port.name}**); numbered markers = cleanup stops in visit order "
+                    "(nearest-neighbour). The transit estimate above is the current-aware "
+                    "figure for the primary anomaly."
+                )
 
             # ADD TO MISSION REPORT (PART 19)
             if st.button("Add this route to the mission report", key="plan_add_report",
