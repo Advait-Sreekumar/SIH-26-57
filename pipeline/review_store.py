@@ -7,7 +7,22 @@ _NOTE_MAX = 500
 
 
 def get_db_path() -> Path:
-    return Path(__file__).parent / "review_store.db"
+    """Return a writable path for the SQLite DB.
+
+    On Streamlit Cloud the repo is mounted read-only at /mount/src/,
+    so fall back to /tmp which is always writable.
+    """
+    default = Path(__file__).parent / "review_store.db"
+    # Check if the directory is writable
+    try:
+        import tempfile
+        test = default.parent / ".write_test"
+        test.touch()
+        test.unlink()
+        return default
+    except OSError:
+        import tempfile  # noqa: F811
+        return Path(tempfile.gettempdir()) / "sonar_review_store.db"
 
 
 VALID_SOURCES = {"sample", "upload"}
