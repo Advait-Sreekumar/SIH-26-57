@@ -256,6 +256,14 @@ hr { border-color: var(--border) !important; }
     line-height: 1.5;
 }
 .hero-accent { color: #2ea8a0; text-shadow: 0 0 22px rgba(46,168,160,0.35); }
+/* Hide Streamlit's built-in sidebar collapse/expand arrow button */
+[data-testid="collapsedControl"] { display: none !important; }
+/* Fix Streamlit file-uploader: the label prop already renders a heading above the
+   dropzone, so hide the duplicate inner "Upload" button text that appears inside
+   the drag-and-drop zone to avoid the visual "uploadUpload" stacking. */
+[data-testid="stFileUploaderDropzoneInstructions"] span,
+[data-testid="stFileUploaderDropzoneInstructions"] small { display: none !important; }
+[data-testid="stFileUploaderDropzone"] button span { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -738,10 +746,20 @@ with st.sidebar:
     # Sequential-review progress is AFTER keyed/locked config so it can never
     # shift file-selector widget identity.
     if _cur_nav_sb == "seq_review" and st.session_state.get("survey_started"):
-        _sb_done = st.session_state.get("_sr_done", 0)
+        # Read fresh from DB so the counter always matches the main-page display
+        # (session-state cache is one render behind when navigating).
+        _sb_run_id = st.session_state.get("run_id")
         _sb_total = st.session_state.get("_sr_total", 0)
+        if _sb_run_id and _sb_total > 0:
+            _sb_reviews_live = get_reviews_for_run(get_db(), _sb_run_id)
+            _sb_done = len(_sb_reviews_live)
+        else:
+            _sb_done = st.session_state.get("_sr_done", 0)
         if _sb_total > 0:
-            st.progress(_sb_done / _sb_total, text=f"Review: {_sb_done}/{_sb_total}")
+            st.progress(
+                min(_sb_done / _sb_total, 1.0),
+                text=f"Review: {_sb_done}/{_sb_total}",
+            )
 
 
 # ================================================================
