@@ -1,9 +1,13 @@
 # Core ML
+# CPU-only torch wheel (~250 MB) — avoids the 3 GB CUDA build that blows
+# Streamlit Cloud's memory limit.  Local GPU users already have the CUDA
+# build installed so pip will skip this.
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.5.1
 segmentation-models-pytorch==0.5.0
 
 # Image processing
-opencv-python==4.10.0.84
+opencv-python-headless==4.10.0.84
 numpy==2.4.6
 Pillow==12.2.0
 scipy==1.17.1
@@ -26,5 +30,6 @@ pyxtf==1.5.0
 pandas==2.3.3
 
 # Utilities
+requests==2.32.3
 tqdm==4.67.3
 matplotlib==3.10.8
