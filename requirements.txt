@@ -1,20 +1,26 @@
 # Core ML
-# CPU-only torch wheel (~250 MB) — Streamlit Cloud runs Python 3.14;
-# torch 2.5.1 has no py3.14 wheels, minimum is 2.9.0.
-# pip fallback (after uv) resolves torch==2.9.1+cpu from the CPU index.
+# CPU-only torch wheel (~250 MB) — deploy target is Python 3.11 (set via
+# .python-version + Streamlit Cloud Advanced Settings → Python version).
+# pip fallback (after uv 403 on https://download.pytorch.org/whl/cpu) resolves
+# torch==2.9.1+cpu from the CPU index.
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.9.1+cpu
 segmentation-models-pytorch==0.5.0
 
 # Image processing
-opencv-python-headless==4.10.0.84
+# opencv-python-headless 5.x ships cp37-abi3 wheels (compatible with py3.11+).
+# Lower bound >=4.13.0.92 kept for safety; pip resolves 5.0.0.93 in practice.
+opencv-python-headless>=4.13.0.92
 numpy==2.4.6
 Pillow==12.2.0
 scipy==1.17.1
 
 # ONNX export + inference
-onnx==1.21.0
-onnxruntime==1.21.1
+# onnx: relaxed from ==1.21.0 to >=1.21.0 so pip resolves 1.23.1, which ships
+#   a cp312-abi3 wheel (compatible with cp311 and cp314).
+# onnxruntime: >=1.24.1 is the first release with cp311/cp314 manylinux wheels.
+onnx>=1.21.0
+onnxruntime>=1.24.1
 ml-dtypes==0.6.0
 
 # UI

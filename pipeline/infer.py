@@ -29,7 +29,10 @@ def has_scse(state_dict):
 
 
 def load_detector(ckpt_path=CKPT, device="cuda"):
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
+    # weights_only=False: checkpoint is a repo-internal dict {"encoder": str,
+    # "model_state_dict": OrderedDict}. torch>=2.9 weights_only=True only allows
+    # plain tensors; the string "encoder" key requires full unpickling.
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     model = smp.Unet(
         encoder_name=ckpt.get("encoder", "resnet34"),
         encoder_weights=None,

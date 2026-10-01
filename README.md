@@ -84,7 +84,14 @@ pip install -r requirements.txt
 streamlit run pipeline/app.py
 ```
 
-Checkpoint is auto-resolved from the repository layout. Override with:
+> **Streamlit Community Cloud — Python version:**
+> This app must be deployed with **Python 3.11**.
+> In your app's Streamlit Cloud dashboard go to **Advanced settings → Python version** and select **3.11**.
+> A `.python-version` file containing `3.11` is committed to the repository as a hint, but
+> Streamlit Cloud's UI setting takes precedence.
+> Using the default Python 3.14 build will fail because several compiled dependencies
+> (e.g. `onnxruntime < 1.24`, older `opencv-python-headless`) lack `cp314` wheels.
+
 ```bash
 export SONAR_CKPT=/path/to/best_model_v1_iou0.71.pth
 export SONAR_TEST_IMAGES=/path/to/test/images
