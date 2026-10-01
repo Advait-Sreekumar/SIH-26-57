@@ -1,9 +1,9 @@
 # Core ML
-# CPU-only torch wheel (~250 MB) — avoids the 3 GB CUDA build that blows
-# Streamlit Cloud's memory limit.  Local GPU users already have the CUDA
-# build installed so pip will skip this.
+# CPU-only torch wheel (~250 MB) — Streamlit Cloud runs Python 3.14;
+# torch 2.5.1 has no py3.14 wheels, minimum is 2.9.0.
+# pip fallback (after uv) resolves torch==2.9.1+cpu from the CPU index.
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.5.1
+torch==2.9.1+cpu
 segmentation-models-pytorch==0.5.0
 
 # Image processing
